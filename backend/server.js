@@ -15,53 +15,70 @@ app.use(express.json());
 
 const upload = multer({
   dest: "uploads/",
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  limits: { fileSize: 20 * 1024 * 1024 },
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const chatModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// Load vector store into memory at startup
+// Vector store
 let store = load();
 console.log(`Vector store loaded: ${store.documents.length} docs, ${store.chunks.length} chunks`);
 
-// ── Chat sessions ─────────────────────────────────────────────────────
+// Chat sessions keyed by "sessionId:modelName"
 const sessions = {};
 
+const STYLE_TEMP = { precise: 0.2, balanced: 0.7, creative: 1.2 };
+
+// ── Chat ──────────────────────────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
-  const { message, sessionId } = req.body;
+  const {
+    message,
+    sessionId,
+    model: modelName = "gemini-1.5-flash",
+    systemPrompt = "",
+    style = "balanced",
+    ragTopK = 4,
+    ragMinScore = 0.45,
+  } = req.body;
+
   if (!message || !sessionId) {
     return res.status(400).json({ error: "message and sessionId are required" });
   }
 
-  if (!sessions[sessionId]) {
-    sessions[sessionId] = chatModel.startChat({ history: [] });
+  const temperature = STYLE_TEMP[style] ?? 0.7;
+  const sessionKey = `${sessionId}:${modelName}`;
+
+  if (!sessions[sessionKey]) {
+    const m = genAI.getGenerativeModel({
+      model: modelName,
+      ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
+      generationConfig: { temperature },
+    });
+    sessions[sessionKey] = m.startChat({ history: [] });
   }
 
-  // RAG: embed query and retrieve relevant chunks
+  // RAG retrieval
   let contextualMessage = message;
   if (store.chunks.length > 0) {
     try {
       const queryEmbedding = await embedText(message);
-      const hits = search(store, queryEmbedding, 4, 0.45);
+      const hits = search(store, queryEmbedding, ragTopK, ragMinScore);
       if (hits.length > 0) {
         const context = hits
           .map((h) => `[Source: ${h.docName}]\n${h.text}`)
           .join("\n\n---\n\n");
         contextualMessage =
           `You have access to the following context from the user's knowledge base. ` +
-          `Use it if relevant to answer the question; otherwise rely on your general knowledge.\n\n` +
-          `<context>\n${context}\n</context>\n\n` +
-          `User question: ${message}`;
+          `Use it if relevant; otherwise rely on your general knowledge.\n\n` +
+          `<context>\n${context}\n</context>\n\nUser question: ${message}`;
       }
     } catch (err) {
       console.error("RAG retrieval error:", err.message);
-      // Fall through and answer without context
     }
   }
 
   try {
-    const result = await sessions[sessionId].sendMessage(contextualMessage);
+    const result = await sessions[sessionKey].sendMessage(contextualMessage);
     res.json({ reply: result.response.text() });
   } catch (err) {
     console.error("Gemini chat error:", err.message);
@@ -73,23 +90,26 @@ app.post("/api/chat", async (req, res) => {
 app.post("/api/title", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "message is required" });
-
   try {
-    const chat = chatModel.startChat({ history: [] });
+    const m = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const chat = m.startChat({ history: [] });
     const result = await chat.sendMessage(
       `Generate a concise 4-6 word title for a conversation that starts with this message. ` +
       `Reply with ONLY the title, no quotes or punctuation at the end:\n\n"${message}"`
     );
     res.json({ title: result.response.text().trim() });
   } catch (err) {
-    console.error("Gemini title error:", err.message);
+    console.error("Title error:", err.message);
     res.status(500).json({ error: "Failed to generate title" });
   }
 });
 
 // ── Session management ────────────────────────────────────────────────
 app.delete("/api/chat/:sessionId", (req, res) => {
-  delete sessions[req.params.sessionId];
+  const prefix = req.params.sessionId + ":";
+  for (const key of Object.keys(sessions)) {
+    if (key.startsWith(prefix)) delete sessions[key];
+  }
   res.json({ message: "Session cleared" });
 });
 
@@ -106,33 +126,27 @@ async function extractText(filePath, originalname) {
     const data = await pdfParse(buffer);
     return data.text;
   }
-  // .txt, .md, or any plain text
   return fs.readFileSync(filePath, "utf8");
 }
 
 async function indexDocument(id, name, text) {
   const rawChunks = chunkText(text);
-  if (rawChunks.length === 0) throw new Error("No extractable text found in document");
-
+  if (rawChunks.length === 0) throw new Error("No extractable text found");
   console.log(`Indexing "${name}": ${rawChunks.length} chunks…`);
   const chunks = [];
-  for (const text of rawChunks) {
-    const embedding = await embedText(text);
-    chunks.push({ text, embedding });
+  for (const t of rawChunks) {
+    const embedding = await embedText(t);
+    chunks.push({ text: t, embedding });
   }
-
   addDocument(store, { id, name, chunks });
   save(store);
   console.log(`Done indexing "${name}"`);
 }
 
-// Upload file (.txt / .pdf / .md)
 app.post("/api/documents", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-
   const { originalname, path: filePath } = req.file;
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
   try {
     const text = await extractText(filePath, originalname);
     await indexDocument(id, originalname, text);
@@ -145,13 +159,9 @@ app.post("/api/documents", upload.single("file"), async (req, res) => {
   }
 });
 
-// Upload pasted text
 app.post("/api/documents/text", async (req, res) => {
   const { name, content } = req.body;
-  if (!name || !content) {
-    return res.status(400).json({ error: "name and content are required" });
-  }
-
+  if (!name || !content) return res.status(400).json({ error: "name and content are required" });
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   try {
     await indexDocument(id, name, content);
@@ -162,7 +172,6 @@ app.post("/api/documents/text", async (req, res) => {
   }
 });
 
-// Delete document
 app.delete("/api/documents/:id", (req, res) => {
   removeDocument(store, req.params.id);
   save(store);

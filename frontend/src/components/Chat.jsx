@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Message from "./Message";
 
-export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarOpen, docCount }) {
+export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarOpen, docCount, settings }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
@@ -36,7 +36,15 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, sessionId: conversation.id }),
+        body: JSON.stringify({
+          message:      text,
+          sessionId:    conversation.id,
+          model:        settings?.model        ?? "gemini-1.5-flash",
+          systemPrompt: settings?.systemPrompt ?? "",
+          style:        settings?.style        ?? "balanced",
+          ragTopK:      settings?.ragTopK      ?? 4,
+          ragMinScore:  settings?.ragMinScore  ?? 0.45,
+        }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -64,16 +72,13 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
     } catch (err) {
       onUpdate(conversation.id, (conv) => ({
         ...conv,
-        messages: [
-          ...conv.messages,
-          { role: "assistant", text: `⚠️ ${err.message}` },
-        ],
+        messages: [...conv.messages, { role: "assistant", text: `⚠️ ${err.message}` }],
       }));
     } finally {
       setLoading(false);
       textareaRef.current?.focus();
     }
-  }, [input, loading, conversation, onUpdate]);
+  }, [input, loading, conversation, onUpdate, settings]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -83,6 +88,12 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
   };
 
   const isEmpty = conversation.messages.length === 0;
+
+  const modelLabel = {
+    "gemini-1.5-flash": "Flash",
+    "gemini-1.5-pro":   "Pro",
+    "gemini-2.0-flash": "2.0",
+  }[settings?.model] ?? settings?.model;
 
   return (
     <div className="chat">
@@ -96,14 +107,21 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
           </button>
         )}
         <span className="chat-title">{conversation.title}</span>
-        {docCount > 0 && (
-          <span className="rag-badge" title={`${docCount} document${docCount > 1 ? "s" : ""} in knowledge base`}>
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0zM9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1z"/>
-            </svg>
-            {docCount} doc{docCount > 1 ? "s" : ""}
-          </span>
-        )}
+
+        <div className="topbar-badges">
+          <span className="model-badge">{modelLabel}</span>
+          {settings?.style && settings.style !== "balanced" && (
+            <span className="style-badge">{settings.style}</span>
+          )}
+          {docCount > 0 && (
+            <span className="rag-badge" title={`${docCount} document${docCount > 1 ? "s" : ""} in knowledge base`}>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0zM9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1z"/>
+              </svg>
+              {docCount} doc{docCount > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -112,7 +130,7 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
           <div className="empty-state">
             <div className="gemini-logo">✦</div>
             <h2>How can I help you today?</h2>
-            <p>Powered by Gemini 1.5 Flash</p>
+            <p>Gemini {modelLabel} · {settings?.style ?? "balanced"} mode{docCount > 0 ? ` · ${docCount} doc${docCount > 1 ? "s" : ""} loaded` : ""}</p>
           </div>
         )}
 
@@ -123,9 +141,7 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
         {loading && (
           <div className="message-row assistant">
             <div className="avatar assistant-avatar">G</div>
-            <div className="bubble typing">
-              <span /><span /><span />
-            </div>
+            <div className="bubble typing"><span /><span /><span /></div>
           </div>
         )}
         <div ref={bottomRef} />
