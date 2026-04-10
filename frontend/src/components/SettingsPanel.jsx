@@ -1,9 +1,28 @@
 import React from "react";
 
-const MODELS = [
-  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", desc: "Fast & efficient — great for most tasks" },
-  { id: "gemini-1.5-pro",   label: "Gemini 1.5 Pro",   desc: "Most capable — better reasoning & longer context" },
-  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash",  desc: "Next-gen speed with improved quality" },
+const MODEL_GROUPS = [
+  {
+    gen: "Gemini 2.5",
+    models: [
+      { id: "gemini-2.5-pro",              label: "2.5 Pro",        desc: "Most intelligent — deep reasoning & thinking",    tag: "Smartest" },
+      { id: "gemini-2.5-flash",            label: "2.5 Flash",      desc: "Adaptive thinking with best price-performance",   tag: "Recommended" },
+    ],
+  },
+  {
+    gen: "Gemini 2.0",
+    models: [
+      { id: "gemini-2.0-flash",            label: "2.0 Flash",      desc: "Next-gen multimodal speed and capability" },
+      { id: "gemini-2.0-flash-lite",       label: "2.0 Flash-Lite", desc: "Most cost-efficient 2.0 model, lightweight tasks", tag: "Lightest" },
+    ],
+  },
+  {
+    gen: "Gemini 1.5",
+    models: [
+      { id: "gemini-1.5-pro",              label: "1.5 Pro",        desc: "Complex reasoning with 1M token context window" },
+      { id: "gemini-1.5-flash",            label: "1.5 Flash",      desc: "Balanced speed and quality",                      tag: "Default" },
+      { id: "gemini-1.5-flash-8b",         label: "1.5 Flash-8B",   desc: "Fastest & most compact — great for simple tasks", tag: "Fastest" },
+    ],
+  },
 ];
 
 const STYLES = [
@@ -59,17 +78,23 @@ export default function SettingsPanel({ settings, onChange, onClose }) {
       <div className="settings-body">
         {/* Model */}
         <Section title="Model">
-          <div className="radio-card-group">
-            {MODELS.map((m) => (
-              <RadioCard
-                key={m.id}
-                checked={settings.model === m.id}
-                onChange={() => set("model", m.id)}
-                label={m.label}
-                desc={m.desc}
-              />
-            ))}
-          </div>
+          {MODEL_GROUPS.map((group) => (
+            <div key={group.gen} className="model-group">
+              <div className="model-group-label">{group.gen}</div>
+              <div className="radio-card-group">
+                {group.models.map((m) => (
+                  <RadioCard
+                    key={m.id}
+                    checked={settings.model === m.id}
+                    onChange={() => set("model", m.id)}
+                    label={m.label}
+                    desc={m.desc}
+                    badge={m.tag}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
           <p className="settings-hint">
             Changing model starts a fresh session for new conversations.
           </p>

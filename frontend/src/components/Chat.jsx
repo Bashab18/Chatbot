@@ -90,9 +90,13 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
   const isEmpty = conversation.messages.length === 0;
 
   const modelLabel = {
-    "gemini-1.5-flash": "Flash",
-    "gemini-1.5-pro":   "Pro",
-    "gemini-2.0-flash": "2.0",
+    "gemini-2.5-pro":         "2.5 Pro",
+    "gemini-2.5-flash":       "2.5 Flash",
+    "gemini-2.0-flash":       "2.0 Flash",
+    "gemini-2.0-flash-lite":  "2.0 Lite",
+    "gemini-1.5-pro":         "1.5 Pro",
+    "gemini-1.5-flash":       "1.5 Flash",
+    "gemini-1.5-flash-8b":    "1.5 Flash-8B",
   }[settings?.model] ?? settings?.model;
 
   return (

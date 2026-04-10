@@ -369,8 +369,16 @@ body {
 .settings-section:last-child { border-bottom: none; }
 .settings-section-title { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px; }
 
+/* Model groups */
+.model-group { margin-bottom: 14px; }
+.model-group:last-child { margin-bottom: 0; }
+.model-group-label {
+  font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--accent); margin-bottom: 6px; padding-left: 2px;
+}
+
 /* Radio cards */
-.radio-card-group { display: flex; flex-direction: column; gap: 8px; }
+.radio-card-group { display: flex; flex-direction: column; gap: 6px; }
 .radio-card {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 10px; cursor: pointer;
