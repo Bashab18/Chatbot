@@ -1,156 +1,86 @@
-import React, { useState, useEffect, useCallback } from "react";
-import Sidebar from "./components/Sidebar";
-import Chat from "./components/Chat";
-import DocumentPanel from "./components/DocumentPanel";
-import SettingsPanel from "./components/SettingsPanel";
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import LoginPage     from "./pages/LoginPage";
+import ChatPage      from "./pages/ChatPage";
+import AdminLayout   from "./pages/admin/AdminLayout";
+import DashboardPage from "./pages/admin/DashboardPage";
+import KnowledgePage from "./pages/admin/KnowledgePage";
+import SettingsPage  from "./pages/admin/SettingsPage";
+import UsersPage     from "./pages/admin/UsersPage";
+import ChatHistoryPage from "./pages/admin/ChatHistoryPage";
 import "./App.css";
 
-const CONV_KEY     = "gemini_chatbot_v1";
-const SETTINGS_KEY = "gemini_settings_v1";
+function ProtectedRoute({ children, requireRole }) {
+  const { user, profile, loading } = useAuth();
 
-const DEFAULT_SETTINGS = {
-  model:        "gemini-1.5-flash",
-  systemPrompt: "",
-  style:        "balanced",
-  theme:        "dark",
-  ragTopK:      4,
-  ragMinScore:  0.45,
-  // ElevenLabs TTS
-  ttsEnabled:   false,
-  ttsVoiceId:   "21m00Tcm4TlvDq8ikWAM", // Rachel
-  ttsModelId:   "eleven_turbo_v2_5",
-  ttsStability: 0.5,
-  ttsSimilarity: 0.75,
-};
+  if (loading) {
+    return (
+      <div className="auth-loading">
+        <div className="auth-spinner" />
+      </div>
+    );
+  }
 
-function generateId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  if (!user) return <Navigate to="/login" replace />;
+
+  if (requireRole && profile?.role !== requireRole) {
+    // Wrong role — redirect to their home
+    return <Navigate to={profile?.role === "admin" ? "/admin" : "/"} replace />;
+  }
+
+  return children;
 }
-function createConversation() {
-  return { id: generateId(), title: "New Chat", messages: [], createdAt: Date.now() };
+
+function RootRedirect() {
+  const { user, profile, loading } = useAuth();
+  if (loading) return <div className="auth-loading"><div className="auth-spinner" /></div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (profile?.role === "admin") return <Navigate to="/admin" replace />;
+  return <Navigate to="/chat" replace />;
 }
 
 export default function App() {
-  const [conversations, setConversations] = useState(() => {
-    try {
-      const s = localStorage.getItem(CONV_KEY);
-      if (s) { const p = JSON.parse(s); if (Array.isArray(p) && p.length) return p; }
-    } catch {}
-    return [createConversation()];
-  });
-
-  const [activeId, setActiveId] = useState(() => conversations[0].id);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activePanel, setActivePanel] = useState(null); // null | "docs" | "settings"
-  const [docCount, setDocCount] = useState(0);
-
-  const [settings, setSettings] = useState(() => {
-    try {
-      const s = localStorage.getItem(SETTINGS_KEY);
-      if (s) return { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
-    } catch {}
-    return DEFAULT_SETTINGS;
-  });
-
-  // Apply theme to document
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", settings.theme);
-  }, [settings.theme]);
-
-  // Persist settings
-  useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [settings]);
-
-  // Persist conversations
-  useEffect(() => {
-    localStorage.setItem(CONV_KEY, JSON.stringify(conversations));
-  }, [conversations]);
-
-  // Initial doc count
-  useEffect(() => {
-    fetch("/api/documents")
-      .then((r) => r.json())
-      .then((d) => setDocCount(d.documents?.length ?? 0))
-      .catch(() => {});
-  }, []);
-
-  const activeConversation = conversations.find((c) => c.id === activeId);
-
-  const handleNew = useCallback(() => {
-    const conv = createConversation();
-    setConversations((p) => [conv, ...p]);
-    setActiveId(conv.id);
-    setActivePanel(null);
-  }, []);
-
-  const handleDelete = useCallback((id) => {
-    fetch(`/api/chat/${id}`, { method: "DELETE" }).catch(() => {});
-    setConversations((prev) => {
-      const filtered = prev.filter((c) => c.id !== id);
-      if (!filtered.length) {
-        const fresh = createConversation();
-        setActiveId(fresh.id);
-        return [fresh];
-      }
-      if (id === activeId) setActiveId(filtered[0].id);
-      return filtered;
-    });
-  }, [activeId]);
-
-  const handleRename = useCallback((id, title) => {
-    setConversations((p) => p.map((c) => (c.id === id ? { ...c, title } : c)));
-  }, []);
-
-  const updateConversation = useCallback((id, updater) => {
-    setConversations((p) => p.map((c) => (c.id === id ? updater(c) : c)));
-  }, []);
-
-  const togglePanel = (name) => setActivePanel((p) => (p === name ? null : name));
-
   return (
-    <div className="app">
-      <Sidebar
-        conversations={conversations}
-        activeId={activeId}
-        onSelect={(id) => { setActiveId(id); setActivePanel(null); }}
-        onNew={handleNew}
-        onDelete={handleDelete}
-        onRename={handleRename}
-        open={sidebarOpen}
-        onToggle={() => setSidebarOpen((v) => !v)}
-        docCount={docCount}
-        onOpenDocs={() => togglePanel("docs")}
-        onOpenSettings={() => togglePanel("settings")}
-        activePanel={activePanel}
-      />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Public */}
+          <Route path="/login" element={<LoginPage />} />
 
-      <main className="main">
-        {activePanel === "docs" && (
-          <DocumentPanel
-            onClose={() => setActivePanel(null)}
-            onDocsChange={setDocCount}
+          {/* Root redirect */}
+          <Route path="/" element={<RootRedirect />} />
+
+          {/* User chat */}
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute requireRole="user">
+                <ChatPage />
+              </ProtectedRoute>
+            }
           />
-        )}
-        {activePanel === "settings" && (
-          <SettingsPanel
-            settings={settings}
-            onChange={setSettings}
-            onClose={() => setActivePanel(null)}
-          />
-        )}
-        {!activePanel && activeConversation && (
-          <Chat
-            key={activeId}
-            conversation={activeConversation}
-            onUpdate={updateConversation}
-            onToggleSidebar={() => setSidebarOpen((v) => !v)}
-            sidebarOpen={sidebarOpen}
-            docCount={docCount}
-            settings={settings}
-          />
-        )}
-      </main>
-    </div>
+
+          {/* Admin panel */}
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute requireRole="admin">
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index              element={<DashboardPage />} />
+            <Route path="knowledge"   element={<KnowledgePage />} />
+            <Route path="settings"    element={<SettingsPage />} />
+            <Route path="users"       element={<UsersPage />} />
+            <Route path="history"     element={<ChatHistoryPage />} />
+          </Route>
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

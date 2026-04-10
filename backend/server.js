@@ -8,6 +8,9 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { embedText } = require("./rag/embed");
 const { chunkText } = require("./rag/chunker");
 const { load, save, addDocument, removeDocument, search } = require("./rag/store");
+const { initFirebase, getDb, requireAuth, requireAdmin } = require("./firebase-admin");
+
+initFirebase();
 
 const app = express();
 app.use(cors());
@@ -20,74 +23,85 @@ const upload = multer({
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Vector store
+// Vector store (local JSON)
 let store = load();
 console.log(`Vector store loaded: ${store.documents.length} docs, ${store.chunks.length} chunks`);
 
-// Chat sessions keyed by "sessionId:modelName"
-const sessions = {};
+// ── Chatbot settings helpers ──────────────────────────────────────────
+const DEFAULT_BOT_SETTINGS = {
+  model: "gemini-1.5-flash",
+  systemPrompt: "You are a helpful assistant. Only answer based on the provided knowledge base.",
+};
 
-const STYLE_TEMP = { precise: 0.2, balanced: 0.7, creative: 1.2 };
+async function loadBotSettings() {
+  const db = getDb();
+  if (!db) return DEFAULT_BOT_SETTINGS;
+  try {
+    const snap = await db.collection("settings").doc("chatbot").get();
+    if (snap.exists) return { ...DEFAULT_BOT_SETTINGS, ...snap.data() };
+  } catch {}
+  return DEFAULT_BOT_SETTINGS;
+}
 
-// ── Chat ──────────────────────────────────────────────────────────────
-app.post("/api/chat", async (req, res) => {
-  const {
-    message,
-    sessionId,
-    model: modelName = "gemini-1.5-flash",
-    systemPrompt = "",
-    style = "balanced",
-    ragTopK = 4,
-    ragMinScore = 0.45,
-  } = req.body;
+// ── User Chat ─────────────────────────────────────────────────────────
+app.post("/api/chat", requireAuth, async (req, res) => {
+  const { message, history = [] } = req.body;
+  if (!message) return res.status(400).json({ error: "message is required" });
 
-  if (!message || !sessionId) {
-    return res.status(400).json({ error: "message and sessionId are required" });
-  }
+  const { model, systemPrompt } = await loadBotSettings();
 
-  const temperature = STYLE_TEMP[style] ?? 0.7;
-  const sessionKey = `${sessionId}:${modelName}`;
-
-  if (!sessions[sessionKey]) {
-    const m = genAI.getGenerativeModel({
-      model: modelName,
-      ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
-      generationConfig: { temperature },
+  // KB retrieval
+  if (store.chunks.length === 0) {
+    return res.json({
+      reply: "The knowledge base is empty. Please ask your administrator to upload documents.",
     });
-    sessions[sessionKey] = m.startChat({ history: [] });
   }
 
-  // RAG retrieval
-  let contextualMessage = message;
-  if (store.chunks.length > 0) {
-    try {
-      const queryEmbedding = await embedText(message);
-      const hits = search(store, queryEmbedding, ragTopK, ragMinScore);
-      if (hits.length > 0) {
-        const context = hits
-          .map((h) => `[Source: ${h.docName}]\n${h.text}`)
-          .join("\n\n---\n\n");
-        contextualMessage =
-          `You have access to the following context from the user's knowledge base. ` +
-          `Use it if relevant; otherwise rely on your general knowledge.\n\n` +
-          `<context>\n${context}\n</context>\n\nUser question: ${message}`;
-      }
-    } catch (err) {
-      console.error("RAG retrieval error:", err.message);
+  let contextText = "";
+  try {
+    const queryEmbedding = await embedText(message);
+    const hits = search(store, queryEmbedding, 5, 0.40);
+    if (hits.length === 0) {
+      return res.json({
+        reply: "I'm sorry, I don't have information about that in my knowledge base.",
+      });
     }
+    contextText = hits.map((h) => `[Source: ${h.docName}]\n${h.text}`).join("\n\n---\n\n");
+  } catch (err) {
+    console.error("RAG error:", err.message);
+    return res.status(500).json({ error: "Failed to search knowledge base" });
   }
+
+  const fullSystem =
+    `${systemPrompt}\n\n` +
+    `IMPORTANT: You must ONLY answer from the context below. ` +
+    `If the question is not covered, say: "I'm sorry, I don't have information about that in my knowledge base."\n\n` +
+    `<context>\n${contextText}\n</context>`;
 
   try {
-    const result = await sessions[sessionKey].sendMessage(contextualMessage);
+    const geminiHistory = history
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.text }],
+      }));
+
+    const geminiModel = genAI.getGenerativeModel({
+      model,
+      systemInstruction: fullSystem,
+      generationConfig: { temperature: 0.4 },
+    });
+    const chat = geminiModel.startChat({ history: geminiHistory });
+    const result = await chat.sendMessage(message);
     res.json({ reply: result.response.text() });
   } catch (err) {
     console.error("Gemini chat error:", err.message);
-    res.status(500).json({ error: "Failed to get response from Gemini" });
+    res.status(500).json({ error: "Failed to get response" });
   }
 });
 
 // ── Title generation ──────────────────────────────────────────────────
-app.post("/api/title", async (req, res) => {
+app.post("/api/title", requireAuth, async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "message is required" });
   try {
@@ -104,17 +118,121 @@ app.post("/api/title", async (req, res) => {
   }
 });
 
-// ── Session management ────────────────────────────────────────────────
-app.delete("/api/chat/:sessionId", (req, res) => {
-  const prefix = req.params.sessionId + ":";
-  for (const key of Object.keys(sessions)) {
-    if (key.startsWith(prefix)) delete sessions[key];
-  }
-  res.json({ message: "Session cleared" });
+// ── Admin: Chatbot Settings ───────────────────────────────────────────
+app.get("/api/admin/settings", requireAdmin, async (req, res) => {
+  const settings = await loadBotSettings();
+  res.json(settings);
 });
 
-// ── Documents ─────────────────────────────────────────────────────────
-app.get("/api/documents", (req, res) => {
+app.put("/api/admin/settings", requireAdmin, async (req, res) => {
+  const { model, systemPrompt } = req.body;
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: "Firestore not configured" });
+  const updates = {};
+  if (model !== undefined) updates.model = model;
+  if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
+  try {
+    await db.collection("settings").doc("chatbot").set(updates, { merge: true });
+    res.json({ message: "Settings saved" });
+  } catch (err) {
+    console.error("Settings save error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: Users ──────────────────────────────────────────────────────
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: "Firestore not configured" });
+  try {
+    const snap = await db.collection("users").get();
+    const users = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+    res.json({ users });
+  } catch (err) {
+    console.error("List users error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/api/admin/users/:uid", requireAdmin, async (req, res) => {
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: "Firestore not configured" });
+  const { note, role } = req.body;
+  const updates = {};
+  if (note !== undefined) updates.note = note;
+  if (role !== undefined) updates.role = role;
+  try {
+    await db.collection("users").doc(req.params.uid).update(updates);
+    res.json({ message: "User updated" });
+  } catch (err) {
+    console.error("Update user error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: Dashboard Stats ────────────────────────────────────────────
+app.get("/api/admin/stats", requireAdmin, async (req, res) => {
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: "Firestore not configured" });
+  try {
+    const usersSnap = await db.collection("users").get();
+    const users = usersSnap.docs.map((d) => d.data());
+    const nonAdmins = users.filter((u) => u.role !== "admin");
+    const totalLogins = nonAdmins.reduce((sum, u) => sum + (u.loginCount || 0), 0);
+    const avgLogins = nonAdmins.length ? (totalLogins / nonAdmins.length).toFixed(1) : 0;
+    const lastLoginTimes = nonAdmins.map((u) => u.lastLogin || 0).filter(Boolean);
+    const mostRecentLogin = lastLoginTimes.length ? Math.max(...lastLoginTimes) : null;
+
+    res.json({
+      totalUsers: nonAdmins.length,
+      kbDocs: store.documents.length,
+      avgLogins: parseFloat(avgLogins),
+      mostRecentLogin,
+    });
+  } catch (err) {
+    console.error("Stats error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: Chat History ───────────────────────────────────────────────
+app.get("/api/admin/chats/:uid", requireAdmin, async (req, res) => {
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: "Firestore not configured" });
+  try {
+    const snap = await db
+      .collection("chats")
+      .where("userId", "==", req.params.uid)
+      .orderBy("updatedAt", "desc")
+      .get();
+    const chats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ chats });
+  } catch (err) {
+    console.error("Chat history error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/chats/:uid/:chatId/messages", requireAdmin, async (req, res) => {
+  const db = getDb();
+  if (!db) return res.status(503).json({ error: "Firestore not configured" });
+  try {
+    const snap = await db
+      .collection("chats")
+      .doc(req.params.chatId)
+      .collection("messages")
+      .orderBy("timestamp", "asc")
+      .get();
+    const messages = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ messages });
+  } catch (err) {
+    console.error("Messages error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Knowledge Base (admin only) ───────────────────────────────────────
+app.get("/api/documents", requireAdmin, (req, res) => {
   res.json({ documents: store.documents });
 });
 
@@ -143,23 +261,29 @@ async function indexDocument(id, name, text) {
   console.log(`Done indexing "${name}"`);
 }
 
-app.post("/api/documents", upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-  const { originalname, path: filePath } = req.file;
-  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  try {
-    const text = await extractText(filePath, originalname);
-    await indexDocument(id, originalname, text);
-    res.json({ id, name: originalname, message: "Document indexed" });
-  } catch (err) {
-    console.error("File indexing error:", err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    fs.unlink(filePath, () => {});
+app.post("/api/documents", requireAdmin, upload.array("files", 20), async (req, res) => {
+  const files = req.files;
+  if (!files || files.length === 0) return res.status(400).json({ error: "No files uploaded" });
+
+  const results = [];
+  for (const file of files) {
+    const { originalname, path: filePath } = file;
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    try {
+      const text = await extractText(filePath, originalname);
+      await indexDocument(id, originalname, text);
+      results.push({ id, name: originalname, ok: true });
+    } catch (err) {
+      console.error(`File indexing error for ${originalname}:`, err.message);
+      results.push({ name: originalname, ok: false, error: err.message });
+    } finally {
+      fs.unlink(filePath, () => {});
+    }
   }
+  res.json({ results });
 });
 
-app.post("/api/documents/text", async (req, res) => {
+app.post("/api/documents/text", requireAdmin, async (req, res) => {
   const { name, content } = req.body;
   if (!name || !content) return res.status(400).json({ error: "name and content are required" });
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -172,7 +296,7 @@ app.post("/api/documents/text", async (req, res) => {
   }
 });
 
-app.delete("/api/documents/:id", (req, res) => {
+app.delete("/api/documents/:id", requireAdmin, (req, res) => {
   removeDocument(store, req.params.id);
   save(store);
   res.json({ message: "Document removed" });
@@ -188,18 +312,15 @@ function xiHeaders() {
   };
 }
 
-// List available voices
 app.get("/api/tts/voices", async (req, res) => {
-  if (!process.env.ELEVENLABS_API_KEY) {
-    return res.status(400).json({ error: "ELEVENLABS_API_KEY not configured on server" });
-  }
+  if (!process.env.ELEVENLABS_API_KEY)
+    return res.status(400).json({ error: "ELEVENLABS_API_KEY not configured" });
   try {
     const response = await fetch(`${XI_BASE}/voices`, {
       headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
     });
     if (!response.ok) throw new Error(`ElevenLabs API error: ${response.status}`);
     const data = await response.json();
-    // Return only the fields the UI needs
     const voices = (data.voices || []).map((v) => ({
       voice_id: v.voice_id,
       name: v.name,
@@ -214,21 +335,18 @@ app.get("/api/tts/voices", async (req, res) => {
   }
 });
 
-// Generate speech and stream back audio
 app.post("/api/tts", async (req, res) => {
-  if (!process.env.ELEVENLABS_API_KEY) {
-    return res.status(400).json({ error: "ELEVENLABS_API_KEY not configured on server" });
-  }
+  if (!process.env.ELEVENLABS_API_KEY)
+    return res.status(400).json({ error: "ELEVENLABS_API_KEY not configured" });
   const {
     text,
-    voiceId      = "21m00Tcm4TlvDq8ikWAM", // Rachel
-    modelId      = "eleven_turbo_v2_5",
-    stability    = 0.5,
+    voiceId = "21m00Tcm4TlvDq8ikWAM",
+    modelId = "eleven_turbo_v2_5",
+    stability = 0.5,
     similarityBoost = 0.75,
-    style        = 0,
+    style = 0,
     speakerBoost = true,
   } = req.body;
-
   if (!text) return res.status(400).json({ error: "text is required" });
 
   try {
@@ -240,23 +358,16 @@ app.post("/api/tts", async (req, res) => {
         body: JSON.stringify({
           text,
           model_id: modelId,
-          voice_settings: {
-            stability,
-            similarity_boost: similarityBoost,
-            style,
-            use_speaker_boost: speakerBoost,
-          },
+          voice_settings: { stability, similarity_boost: similarityBoost, style, use_speaker_boost: speakerBoost },
         }),
       }
     );
-
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       return res.status(response.status).json({
         error: err?.detail?.message || `ElevenLabs error ${response.status}`,
       });
     }
-
     const buffer = await response.arrayBuffer();
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Content-Length", buffer.byteLength);
