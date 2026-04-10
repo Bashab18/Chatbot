@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Message from "./Message";
 
-export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarOpen }) {
+export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarOpen, docCount }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
@@ -96,6 +96,14 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
           </button>
         )}
         <span className="chat-title">{conversation.title}</span>
+        {docCount > 0 && (
+          <span className="rag-badge" title={`${docCount} document${docCount > 1 ? "s" : ""} in knowledge base`}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0zM9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1z"/>
+            </svg>
+            {docCount} doc{docCount > 1 ? "s" : ""}
+          </span>
+        )}
       </div>
 
       {/* Messages */}

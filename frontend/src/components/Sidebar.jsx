@@ -82,11 +82,15 @@ function ConvItem({ conv, active, onSelect, onDelete, onRename }) {
   );
 }
 
-export default function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, onRename, open, onToggle }) {
+export default function Sidebar({
+  conversations, activeId, onSelect, onNew, onDelete, onRename,
+  open, onToggle, docCount, onOpenDocs,
+}) {
   const groups = groupConversations(conversations);
 
   return (
     <aside className={`sidebar${open ? "" : " closed"}`}>
+      {/* Top bar */}
       <div className="sidebar-top">
         <button className="icon-btn sidebar-toggle" onClick={onToggle} title="Toggle sidebar">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -103,6 +107,7 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
         )}
       </div>
 
+      {/* Conversation list */}
       {open && (
         <div className="conv-list">
           {Object.entries(groups).map(([label, convs]) => (
@@ -122,6 +127,25 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
           ))}
         </div>
       )}
+
+      {/* Knowledge Base button */}
+      <div className="sidebar-bottom">
+        <button
+          className={`kb-btn${docCount > 0 ? " has-docs" : ""}`}
+          onClick={onOpenDocs}
+          title="Knowledge Base"
+        >
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M9.293 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0zM9.5 3.5v-2l3 3h-2a1 1 0 0 1-1-1zM4.5 9a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zM4 10.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm.5 2.5a.5.5 0 0 1 0-1h4a.5.5 0 0 1 0 1h-4z"/>
+          </svg>
+          {open && (
+            <span>
+              Knowledge Base
+              {docCount > 0 && <span className="kb-badge">{docCount}</span>}
+            </span>
+          )}
+        </button>
+      </div>
     </aside>
   );
 }

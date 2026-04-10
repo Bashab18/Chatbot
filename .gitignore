@@ -2,3 +2,7 @@ node_modules/
 .env
 build/
 .DS_Store
+
+# RAG data (persisted locally, not committed)
+backend/data/
+backend/uploads/

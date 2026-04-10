@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
 import Chat from "./components/Chat";
+import DocumentPanel from "./components/DocumentPanel";
 import "./App.css";
 
 const STORAGE_KEY = "gemini_chatbot_v1";
@@ -27,10 +28,21 @@ export default function App() {
 
   const [activeId, setActiveId] = useState(() => conversations[0].id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showDocPanel, setShowDocPanel] = useState(false);
+  const [docCount, setDocCount] = useState(0);
 
+  // Persist conversations
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
   }, [conversations]);
+
+  // Fetch initial doc count
+  useEffect(() => {
+    fetch("/api/documents")
+      .then((r) => r.json())
+      .then((d) => setDocCount(d.documents?.length ?? 0))
+      .catch(() => {});
+  }, []);
 
   const activeConversation = conversations.find((c) => c.id === activeId);
 
@@ -72,22 +84,33 @@ export default function App() {
       <Sidebar
         conversations={conversations}
         activeId={activeId}
-        onSelect={setActiveId}
+        onSelect={(id) => { setActiveId(id); setShowDocPanel(false); }}
         onNew={handleNew}
         onDelete={handleDelete}
         onRename={handleRename}
         open={sidebarOpen}
         onToggle={() => setSidebarOpen((v) => !v)}
+        docCount={docCount}
+        onOpenDocs={() => setShowDocPanel((v) => !v)}
       />
+
       <main className="main">
-        {activeConversation && (
-          <Chat
-            key={activeId}
-            conversation={activeConversation}
-            onUpdate={updateConversation}
-            onToggleSidebar={() => setSidebarOpen((v) => !v)}
-            sidebarOpen={sidebarOpen}
+        {showDocPanel ? (
+          <DocumentPanel
+            onClose={() => setShowDocPanel(false)}
+            onDocsChange={setDocCount}
           />
+        ) : (
+          activeConversation && (
+            <Chat
+              key={activeId}
+              conversation={activeConversation}
+              onUpdate={updateConversation}
+              onToggleSidebar={() => setSidebarOpen((v) => !v)}
+              sidebarOpen={sidebarOpen}
+              docCount={docCount}
+            />
+          )
         )}
       </main>
     </div>
