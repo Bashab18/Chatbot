@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
 const MODEL_GROUPS = [
   {
@@ -24,6 +24,123 @@ const MODEL_GROUPS = [
     ],
   },
 ];
+
+const TTS_MODELS = [
+  { id: "eleven_turbo_v2_5",     label: "Turbo v2.5",      desc: "Lowest latency · great quality" },
+  { id: "eleven_turbo_v2",       label: "Turbo v2",         desc: "Low latency · solid quality" },
+  { id: "eleven_multilingual_v2",label: "Multilingual v2",  desc: "Highest quality · 29 languages" },
+  { id: "eleven_monolingual_v1", label: "Monolingual v1",   desc: "Original English model" },
+];
+
+function TTSSection({ settings, set }) {
+  const [voices, setVoices] = useState([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+
+  useEffect(() => {
+    if (!settings.ttsEnabled) return;
+    setLoadingVoices(true);
+    setVoiceError("");
+    fetch("/api/tts/voices")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setVoices(d.voices || []);
+      })
+      .catch((e) => setVoiceError(e.message))
+      .finally(() => setLoadingVoices(false));
+  }, [settings.ttsEnabled]);
+
+  return (
+    <>
+      {/* Enable toggle */}
+      <div className="theme-toggle-row" style={{ marginBottom: "14px" }}>
+        <div>
+          <div style={{ fontSize: ".875rem", color: "var(--text)", fontWeight: 500 }}>Enable Voice</div>
+          <div style={{ fontSize: ".75rem", color: "var(--muted)", marginTop: "2px" }}>Read responses aloud via ElevenLabs</div>
+        </div>
+        <button
+          className={`tts-switch${settings.ttsEnabled ? " on" : ""}`}
+          onClick={() => set("ttsEnabled", !settings.ttsEnabled)}
+        >
+          <div className="tts-knob" />
+        </button>
+      </div>
+
+      {settings.ttsEnabled && (
+        <>
+          {/* Voice selector */}
+          <div className="settings-row">
+            <label className="settings-label" style={{ marginBottom: "6px" }}>Voice</label>
+            {voiceError ? (
+              <p className="settings-hint" style={{ color: "var(--red)" }}>
+                {voiceError} — add ELEVENLABS_API_KEY to your backend .env
+              </p>
+            ) : loadingVoices ? (
+              <p className="settings-hint">Loading voices…</p>
+            ) : voices.length === 0 ? (
+              <p className="settings-hint">No voices found. Check your API key.</p>
+            ) : (
+              <select
+                className="settings-select"
+                value={settings.ttsVoiceId}
+                onChange={(e) => set("ttsVoiceId", e.target.value)}
+              >
+                {voices.map((v) => (
+                  <option key={v.voice_id} value={v.voice_id}>
+                    {v.name}{v.labels?.accent ? ` · ${v.labels.accent}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Model selector */}
+          <div className="settings-row">
+            <label className="settings-label" style={{ marginBottom: "6px" }}>Model</label>
+            <select
+              className="settings-select"
+              value={settings.ttsModelId}
+              onChange={(e) => set("ttsModelId", e.target.value)}
+            >
+              {TTS_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label} — {m.desc}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Stability */}
+          <div className="settings-row">
+            <label className="settings-label">
+              Stability
+              <span className="settings-value">{settings.ttsStability.toFixed(2)}</span>
+            </label>
+            <input type="range" min={0} max={1} step={0.05}
+              value={settings.ttsStability}
+              onChange={(e) => set("ttsStability", Number(e.target.value))}
+              className="settings-range"
+            />
+            <div className="range-labels"><span>Variable</span><span>Stable</span></div>
+          </div>
+
+          {/* Similarity Boost */}
+          <div className="settings-row">
+            <label className="settings-label">
+              Clarity / Similarity
+              <span className="settings-value">{settings.ttsSimilarity.toFixed(2)}</span>
+            </label>
+            <input type="range" min={0} max={1} step={0.05}
+              value={settings.ttsSimilarity}
+              onChange={(e) => set("ttsSimilarity", Number(e.target.value))}
+              className="settings-range"
+            />
+            <div className="range-labels"><span>Low</span><span>High</span></div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
 
 const STYLES = [
   { id: "precise",  label: "Precise",  desc: "Factual, direct, low creativity",  temp: "0.2" },
@@ -158,6 +275,11 @@ export default function SettingsPanel({ settings, onChange, onClose }) {
             />
             <div className="range-labels"><span>0.20 (broad)</span><span>0.80 (strict)</span></div>
           </div>
+        </Section>
+
+        {/* ElevenLabs TTS */}
+        <Section title="Voice (ElevenLabs)">
+          <TTSSection settings={settings} set={set} />
         </Section>
 
         {/* Appearance */}

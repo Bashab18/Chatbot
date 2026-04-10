@@ -178,6 +178,95 @@ app.delete("/api/documents/:id", (req, res) => {
   res.json({ message: "Document removed" });
 });
 
+// ── ElevenLabs TTS ───────────────────────────────────────────────────
+const XI_BASE = "https://api.elevenlabs.io/v1";
+
+function xiHeaders() {
+  return {
+    "xi-api-key": process.env.ELEVENLABS_API_KEY,
+    "Content-Type": "application/json",
+  };
+}
+
+// List available voices
+app.get("/api/tts/voices", async (req, res) => {
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return res.status(400).json({ error: "ELEVENLABS_API_KEY not configured on server" });
+  }
+  try {
+    const response = await fetch(`${XI_BASE}/voices`, {
+      headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY },
+    });
+    if (!response.ok) throw new Error(`ElevenLabs API error: ${response.status}`);
+    const data = await response.json();
+    // Return only the fields the UI needs
+    const voices = (data.voices || []).map((v) => ({
+      voice_id: v.voice_id,
+      name: v.name,
+      category: v.category,
+      labels: v.labels,
+      preview_url: v.preview_url,
+    }));
+    res.json({ voices });
+  } catch (err) {
+    console.error("ElevenLabs voices error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate speech and stream back audio
+app.post("/api/tts", async (req, res) => {
+  if (!process.env.ELEVENLABS_API_KEY) {
+    return res.status(400).json({ error: "ELEVENLABS_API_KEY not configured on server" });
+  }
+  const {
+    text,
+    voiceId      = "21m00Tcm4TlvDq8ikWAM", // Rachel
+    modelId      = "eleven_turbo_v2_5",
+    stability    = 0.5,
+    similarityBoost = 0.75,
+    style        = 0,
+    speakerBoost = true,
+  } = req.body;
+
+  if (!text) return res.status(400).json({ error: "text is required" });
+
+  try {
+    const response = await fetch(
+      `${XI_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+      {
+        method: "POST",
+        headers: xiHeaders(),
+        body: JSON.stringify({
+          text,
+          model_id: modelId,
+          voice_settings: {
+            stability,
+            similarity_boost: similarityBoost,
+            style,
+            use_speaker_boost: speakerBoost,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: err?.detail?.message || `ElevenLabs error ${response.status}`,
+      });
+    }
+
+    const buffer = await response.arrayBuffer();
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", buffer.byteLength);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error("TTS error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Health ────────────────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", docs: store.documents.length, chunks: store.chunks.length });

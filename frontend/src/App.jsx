@@ -15,6 +15,12 @@ const DEFAULT_SETTINGS = {
   theme:        "dark",
   ragTopK:      4,
   ragMinScore:  0.45,
+  // ElevenLabs TTS
+  ttsEnabled:   false,
+  ttsVoiceId:   "21m00Tcm4TlvDq8ikWAM", // Rachel
+  ttsModelId:   "eleven_turbo_v2_5",
+  ttsStability: 0.5,
+  ttsSimilarity: 0.75,
 };
 
 function generateId() {

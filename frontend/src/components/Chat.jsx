@@ -4,8 +4,50 @@ import Message from "./Message";
 export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarOpen, docCount, settings }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [speakingId, setSpeakingId] = useState(null);
+  const audioRef = useRef(null);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // Stop audio when conversation changes
+  useEffect(() => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    setSpeakingId(null);
+  }, [conversation.id]);
+
+  const handleSpeak = useCallback(async (text, msgId) => {
+    // Toggle off if same message is playing
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+      if (speakingId === msgId) { setSpeakingId(null); return; }
+    }
+
+    setSpeakingId(msgId);
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          voiceId:        settings?.ttsVoiceId      ?? "21m00Tcm4TlvDq8ikWAM",
+          modelId:        settings?.ttsModelId      ?? "eleven_turbo_v2_5",
+          stability:      settings?.ttsStability    ?? 0.5,
+          similarityBoost: settings?.ttsSimilarity  ?? 0.75,
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.play();
+      audio.onended = () => { URL.revokeObjectURL(url); setSpeakingId(null); audioRef.current = null; };
+    } catch (err) {
+      console.error("TTS error:", err.message);
+      setSpeakingId(null);
+    }
+  }, [settings, speakingId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -139,7 +181,14 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
         )}
 
         {conversation.messages.map((msg, i) => (
-          <Message key={i} role={msg.role} text={msg.text} />
+          <Message
+            key={i}
+            role={msg.role}
+            text={msg.text}
+            msgId={i}
+            onSpeak={settings?.ttsEnabled ? handleSpeak : null}
+            isSpeaking={speakingId === i}
+          />
         ))}
 
         {loading && (
