@@ -12,7 +12,7 @@ import ChatHistoryPage from "./pages/admin/ChatHistoryPage";
 import "./App.css";
 
 function ProtectedRoute({ children, requireRole }) {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (loading) {
     return (
@@ -24,20 +24,18 @@ function ProtectedRoute({ children, requireRole }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (requireRole && profile?.role !== requireRole) {
-    // Wrong role — redirect to their home
-    return <Navigate to={profile?.role === "admin" ? "/admin" : "/"} replace />;
+  if (requireRole && user.role !== requireRole) {
+    return <Navigate to={user.role === "admin" ? "/admin" : "/chat"} replace />;
   }
 
   return children;
 }
 
 function RootRedirect() {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
   if (loading) return <div className="auth-loading"><div className="auth-spinner" /></div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (profile?.role === "admin") return <Navigate to="/admin" replace />;
-  return <Navigate to="/chat" replace />;
+  return <Navigate to={user.role === "admin" ? "/admin" : "/chat"} replace />;
 }
 
 export default function App() {

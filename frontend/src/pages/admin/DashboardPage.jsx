@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { collection, onSnapshot, orderBy, query, limit } from "firebase/firestore";
-import { db } from "../../firebase";
 import { useAuth } from "../../context/AuthContext";
 
 function timeAgo(ts) {
   if (!ts) return "Never";
-  const diff = Date.now() - ts;
+  const diff  = Date.now() - ts;
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
@@ -17,48 +15,34 @@ function timeAgo(ts) {
 
 export default function DashboardPage() {
   const { getToken } = useAuth();
-  const [stats, setStats] = useState(null);
+  const [stats, setStats]       = useState(null);
   const [activity, setActivity] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
-    async function fetchStats() {
+    async function load() {
+      const token = getToken();
+      const headers = { Authorization: `Bearer ${token}` };
       try {
-        const token = await getToken();
-        const res = await fetch("/api/admin/stats", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setStats(data);
-      } catch (err) {
-        console.error("Stats error:", err);
-      } finally {
-        setLoading(false);
-      }
+        const [statsRes, chatsRes] = await Promise.all([
+          fetch("/api/admin/stats",        { headers }),
+          fetch("/api/admin/recent-chats", { headers }),
+        ]);
+        setStats(await statsRes.json());
+        const chatData = await chatsRes.json();
+        setActivity(chatData.chats ?? []);
+      } catch {}
+      setLoading(false);
     }
-    fetchStats();
+    load();
   }, [getToken]);
-
-  // Recent activity: listen to latest chats in Firestore
-  useEffect(() => {
-    const q = query(collection(db, "chats"), orderBy("updatedAt", "desc"), limit(10));
-    return onSnapshot(q, (snap) => {
-      setActivity(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-  }, []);
 
   const cards = stats
     ? [
-        { label: "Total Users", value: stats.totalUsers, color: "accent",  icon: "👥" },
-        { label: "KB Documents", value: stats.kbDocs,   color: "green",  icon: "📄" },
-        { label: "Avg Logins",   value: stats.avgLogins, color: "mauve",  icon: "🔐" },
-        {
-          label:   "Last Login",
-          value:   timeAgo(stats.mostRecentLogin),
-          color:   "peach",
-          icon:    "🕐",
-          small:   true,
-        },
+        { label: "Total Users",  value: stats.totalUsers,           color: "accent", icon: "👥" },
+        { label: "KB Documents", value: stats.kbDocs,               color: "green",  icon: "📄" },
+        { label: "Avg Logins",   value: stats.avgLogins,            color: "mauve",  icon: "🔐" },
+        { label: "Last Login",   value: timeAgo(stats.mostRecentLogin), color: "peach", icon: "🕐", small: true },
       ]
     : [];
 
@@ -96,7 +80,7 @@ export default function DashboardPage() {
                 <div className="activity-dot" />
                 <div className="activity-body">
                   <span className="activity-title">{chat.title}</span>
-                  <span className="activity-time">{timeAgo(chat.updatedAt)}</span>
+                  <span className="activity-time">{timeAgo(chat.updated_at)}</span>
                 </div>
               </div>
             ))}

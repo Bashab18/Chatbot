@@ -21,7 +21,7 @@ export default function SettingsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const token = await getToken();
+        const token = getToken();
         const res = await fetch("/api/admin/settings", {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -38,7 +38,7 @@ export default function SettingsPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const token = await getToken();
+      const token = getToken();
       const res = await fetch("/api/admin/settings", {
         method:  "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

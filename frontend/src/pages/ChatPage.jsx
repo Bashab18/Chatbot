@@ -1,18 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  collection, addDoc, onSnapshot, query, orderBy,
-  doc, setDoc, updateDoc, deleteDoc, getDocs, serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import Message from "../components/Message";
 
-function generateId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
 export default function ChatPage() {
-  const { user, profile, logout, getToken } = useAuth();
+  const { user, logout, getToken } = useAuth();
 
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId]           = useState(null);
@@ -28,38 +19,41 @@ export default function ChatPage() {
   const audioRef    = useRef(null);
   const bottomRef   = useRef(null);
   const textareaRef = useRef(null);
-  const unsubMsgs   = useRef(null);
 
-  // ── Load conversations from Firestore ────────────────────────────────
-  useEffect(() => {
-    if (!user) return;
-    const q = query(
-      collection(db, "chats"),
-      orderBy("updatedAt", "desc")
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      const all = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((c) => c.userId === user.uid);
-      setConversations(all);
-      if (all.length && !activeId) setActiveId(all[0].id);
+  // ── API helpers ───────────────────────────────────────────────────────
+  const apiFetch = useCallback(async (url, opts = {}) => {
+    const token = getToken();
+    const res = await fetch(url, {
+      ...opts,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...opts.headers },
     });
-    return unsub;
-  }, [user]);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+    return data;
+  }, [getToken]);
 
-  // ── Subscribe to messages for active conversation ─────────────────────
+  // ── Load conversations ────────────────────────────────────────────────
+  async function loadConversations() {
+    try {
+      const data = await apiFetch("/api/conversations");
+      setConversations(data.conversations);
+    } catch {}
+  }
+
+  useEffect(() => { loadConversations(); }, []);
+
+  // Set first conversation as active once loaded
   useEffect(() => {
-    if (unsubMsgs.current) { unsubMsgs.current(); unsubMsgs.current = null; }
-    if (!activeId) { setMessages([]); return; }
+    if (conversations.length > 0 && !activeId) setActiveId(conversations[0].id);
+  }, [conversations]);
 
-    const q = query(
-      collection(db, "chats", activeId, "messages"),
-      orderBy("timestamp", "asc")
-    );
-    unsubMsgs.current = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-    return () => { if (unsubMsgs.current) unsubMsgs.current(); };
+  // ── Load messages when active conversation changes ────────────────────
+  useEffect(() => {
+    setMessages([]);
+    if (!activeId) return;
+    apiFetch(`/api/conversations/${activeId}/messages`)
+      .then((data) => setMessages(data.messages))
+      .catch(() => {});
   }, [activeId]);
 
   // ── Stop audio on conversation change ────────────────────────────────
@@ -68,7 +62,7 @@ export default function ChatPage() {
     setSpeakingId(null);
   }, [activeId]);
 
-  // ── Scroll to bottom ─────────────────────────────────────────────────
+  // ── Scroll to bottom ──────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -83,31 +77,36 @@ export default function ChatPage() {
 
   // ── New conversation ──────────────────────────────────────────────────
   async function newConversation() {
-    const id = generateId();
-    await setDoc(doc(db, "chats", id), {
-      userId:    user.uid,
-      title:     "New Chat",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    setActiveId(id);
+    try {
+      const conv = await apiFetch("/api/conversations", { method: "POST" });
+      setConversations((prev) => [conv, ...prev]);
+      setActiveId(conv.id);
+      setMessages([]);
+    } catch {}
   }
 
-  // ── Delete conversation with confirmation ─────────────────────────────
+  // ── Delete conversation ───────────────────────────────────────────────
   async function deleteConversation(id) {
-    // Delete all messages sub-collection first
-    const msgsSnap = await getDocs(collection(db, "chats", id, "messages"));
-    const deletes = msgsSnap.docs.map((d) => deleteDoc(d.ref));
-    await Promise.all(deletes);
-    await deleteDoc(doc(db, "chats", id));
-    if (activeId === id) setActiveId(null);
+    try {
+      await apiFetch(`/api/conversations/${id}`, { method: "DELETE" });
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeId === id) { setActiveId(null); setMessages([]); }
+    } catch {}
     setConfirmDelete(null);
   }
 
   // ── Rename conversation ───────────────────────────────────────────────
   async function saveRename(id) {
     if (editTitle.trim()) {
-      await updateDoc(doc(db, "chats", id), { title: editTitle.trim() });
+      try {
+        await apiFetch(`/api/conversations/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ title: editTitle.trim() }),
+        });
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: editTitle.trim() } : c))
+        );
+      } catch {}
     }
     setEditingId(null);
     setEditTitle("");
@@ -122,57 +121,52 @@ export default function ChatPage() {
 
     const isFirst = messages.length === 0;
 
-    // Write user message to Firestore
-    await addDoc(collection(db, "chats", activeId, "messages"), {
-      role:      "user",
-      text,
-      timestamp: Date.now(),
-    });
-    await updateDoc(doc(db, "chats", activeId), { updatedAt: Date.now() });
+    // Optimistic: show user message immediately
+    const tempId = `temp-${Date.now()}`;
+    setMessages((prev) => [...prev, { id: tempId, role: "user", text, timestamp: Date.now() }]);
 
-    // Auto-title on first message
-    if (isFirst) {
-      const token = await getToken();
-      fetch("/api/title", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ message: text }),
-      })
-        .then((r) => r.json())
-        .then((d) => { if (d.title) updateDoc(doc(db, "chats", activeId), { title: d.title }); })
-        .catch(() => {});
-    }
-
-    // Call AI
     try {
-      const token = await getToken();
-      // Pass last 10 messages as history for context
-      const history = messages.slice(-10).map((m) => ({ role: m.role, text: m.text }));
-      const res = await fetch("/api/chat", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ message: text, history }),
+      const data = await apiFetch("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ conversationId: activeId, message: text, history: messages.slice(-10) }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
 
-      await addDoc(collection(db, "chats", activeId, "messages"), {
-        role:      "assistant",
-        text:      data.reply,
-        timestamp: Date.now(),
-      });
-      await updateDoc(doc(db, "chats", activeId), { updatedAt: Date.now() });
+      // Replace optimistic message + add assistant reply
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== tempId),
+        { id: data.userMsgId, role: "user", text, timestamp: Date.now() },
+        { id: data.botMsgId, role: "assistant", text: data.reply, timestamp: Date.now() },
+      ]);
+
+      // Update conversation's updated_at in local state
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? { ...c, updated_at: Date.now() } : c))
+      );
+
+      // Auto-title on first message
+      if (isFirst) {
+        apiFetch("/api/title", {
+          method: "POST",
+          body: JSON.stringify({ message: text, conversationId: activeId }),
+        })
+          .then((d) => {
+            if (d.title)
+              setConversations((prev) =>
+                prev.map((c) => (c.id === activeId ? { ...c, title: d.title } : c))
+              );
+          })
+          .catch(() => {});
+      }
     } catch (err) {
-      await addDoc(collection(db, "chats", activeId, "messages"), {
-        role:      "assistant",
-        text:      `⚠️ ${err.message}`,
-        timestamp: Date.now(),
-      });
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== tempId),
+        { id: `err-${Date.now()}`, role: "assistant", text: `⚠️ ${err.message}`, timestamp: Date.now() },
+      ]);
     } finally {
       setLoading(false);
       textareaRef.current?.focus();
     }
-  }, [input, loading, activeId, messages, getToken]);
+  }, [input, loading, activeId, messages, apiFetch]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -187,11 +181,11 @@ export default function ChatPage() {
     setSpeakingId(msgId);
     try {
       const res = await fetch("/api/tts", {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ text }),
+        body: JSON.stringify({ text }),
       });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      if (!res.ok) throw new Error((await res.json()).error);
       const blob  = await res.blob();
       const url   = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -199,15 +193,28 @@ export default function ChatPage() {
       audio.play();
       audio.onended = () => { URL.revokeObjectURL(url); setSpeakingId(null); audioRef.current = null; };
     } catch (err) {
-      console.error("TTS error:", err.message); setSpeakingId(null);
+      console.error("TTS:", err.message); setSpeakingId(null);
     }
   }, [speakingId]);
 
-  // ── Clear chat (delete all messages) ─────────────────────────────────
+  // ── Clear messages ────────────────────────────────────────────────────
   async function clearChat() {
+    // Delete and recreate: simplest way to clear without a dedicated endpoint
     if (!activeId) return;
-    const snap = await getDocs(collection(db, "chats", activeId, "messages"));
-    await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+    const conv = conversations.find((c) => c.id === activeId);
+    try {
+      await apiFetch(`/api/conversations/${activeId}`, { method: "DELETE" });
+      const newConv = await apiFetch("/api/conversations", { method: "POST" });
+      if (conv) {
+        await apiFetch(`/api/conversations/${newConv.id}`, {
+          method: "PATCH", body: JSON.stringify({ title: conv.title }),
+        });
+        newConv.title = conv.title;
+      }
+      setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== activeId)]);
+      setActiveId(newConv.id);
+      setMessages([]);
+    } catch {}
   }
 
   const isEmpty = messages.length === 0;
@@ -248,7 +255,7 @@ export default function ChatPage() {
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
                   onBlur={() => saveRename(conv.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveRename(conv.id); if (e.key === "Escape") { setEditingId(null); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveRename(conv.id); if (e.key === "Escape") setEditingId(null); }}
                   autoFocus
                   onClick={(e) => e.stopPropagation()}
                 />
@@ -256,20 +263,14 @@ export default function ChatPage() {
                 <span className="conv-title">{conv.title}</span>
               )}
               <div className="conv-actions" onClick={(e) => e.stopPropagation()}>
-                <button
-                  className="conv-action-btn"
-                  title="Rename"
-                  onClick={() => { setEditingId(conv.id); setEditTitle(conv.title); }}
-                >
+                <button className="conv-action-btn" title="Rename"
+                  onClick={() => { setEditingId(conv.id); setEditTitle(conv.title); }}>
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11l.178-.178z"/>
                   </svg>
                 </button>
-                <button
-                  className="conv-action-btn danger"
-                  title="Delete"
-                  onClick={() => setConfirmDelete(conv.id)}
-                >
+                <button className="conv-action-btn danger" title="Delete"
+                  onClick={() => setConfirmDelete(conv.id)}>
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
                     <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
@@ -285,9 +286,9 @@ export default function ChatPage() {
 
         <div className="sidebar-footer">
           <div className="sidebar-user">
-            <div className="user-avatar">{profile?.displayName?.[0]?.toUpperCase() ?? "U"}</div>
+            <div className="user-avatar">{user?.name?.[0]?.toUpperCase() ?? "U"}</div>
             <div className="user-info">
-              <span className="user-name">{profile?.displayName ?? user?.email}</span>
+              <span className="user-name">{user?.name ?? user?.email}</span>
               <span className="user-role">User</span>
             </div>
           </div>
@@ -302,7 +303,6 @@ export default function ChatPage() {
 
       {/* Main chat */}
       <div className="chat">
-        {/* Topbar */}
         <div className="chat-topbar">
           {!sidebarOpen && (
             <button className="icon-btn" onClick={() => setSidebarOpen(true)} title="Open sidebar">
@@ -323,16 +323,13 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Messages */}
         <div className="chat-messages">
           {!activeId ? (
             <div className="empty-state">
               <div className="empty-logo">✦</div>
-              <h2>Welcome, {profile?.displayName?.split(" ")[0] ?? "there"}!</h2>
+              <h2>Welcome, {user?.name?.split(" ")[0] ?? "there"}!</h2>
               <p>Start a new conversation to chat with the assistant.</p>
-              <button className="suggestion-chip" onClick={newConversation}>
-                Start new chat
-              </button>
+              <button className="suggestion-chip" onClick={newConversation}>Start new chat</button>
             </div>
           ) : isEmpty ? (
             <div className="empty-state">
@@ -341,22 +338,13 @@ export default function ChatPage() {
               <p>Ask me anything from the knowledge base.</p>
               <div className="suggestion-chips">
                 {["What topics can you help with?", "Summarize the key points", "Explain in simple terms", "Give me an overview"].map((s) => (
-                  <button key={s} className="suggestion-chip" onClick={() => setInput(s)}>
-                    {s}
-                  </button>
+                  <button key={s} className="suggestion-chip" onClick={() => setInput(s)}>{s}</button>
                 ))}
               </div>
             </div>
           ) : (
             messages.map((msg, i) => (
-              <Message
-                key={msg.id ?? i}
-                role={msg.role}
-                text={msg.text}
-                msgId={msg.id ?? i}
-                onSpeak={handleSpeak}
-                isSpeaking={speakingId === (msg.id ?? i)}
-              />
+              <Message key={msg.id} role={msg.role} text={msg.text} msgId={msg.id} onSpeak={handleSpeak} isSpeaking={speakingId === msg.id} />
             ))
           )}
           {loading && (
@@ -368,7 +356,6 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
         <div className="chat-input-area">
           <div className="input-box">
             <textarea
@@ -380,22 +367,14 @@ export default function ChatPage() {
               rows={1}
               disabled={loading || !activeId}
             />
-            <button
-              className="send-btn"
-              onClick={sendMessage}
-              disabled={loading || !input.trim() || !activeId}
-              title="Send"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
+            <button className="send-btn" onClick={sendMessage} disabled={loading || !input.trim() || !activeId} title="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
             </button>
           </div>
           <p className="disclaimer">Answers are based solely on the uploaded knowledge base.</p>
         </div>
       </div>
 
-      {/* Delete confirmation modal */}
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>

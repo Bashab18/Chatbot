@@ -30,14 +30,7 @@ export default function LoginPage() {
         navigate(role === "admin" ? "/admin" : "/chat");
       }
     } catch (err) {
-      const msg = err.code === "auth/user-not-found" || err.code === "auth/wrong-password"
-        ? "Invalid email or password"
-        : err.code === "auth/email-already-in-use"
-        ? "An account with this email already exists"
-        : err.code === "auth/invalid-email"
-        ? "Invalid email address"
-        : err.message;
-      setError(msg);
+      setError(err.message);
     } finally {
       setLoading(false);
     }

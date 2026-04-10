@@ -29,7 +29,7 @@ export default function UsersPage() {
 
   async function loadUsers() {
     try {
-      const token = await getToken();
+      const token = getToken();
       const res = await fetch("/api/admin/users", { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setUsers((data.users ?? []).filter((u) => u.role !== "admin"));
@@ -45,13 +45,13 @@ export default function UsersPage() {
   async function saveNote(uid) {
     setSaving((p) => ({ ...p, [uid]: true }));
     try {
-      const token = await getToken();
+      const token = getToken();
       await fetch(`/api/admin/users/${uid}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ note: editNote[uid] ?? "" }),
       });
-      setUsers((prev) => prev.map((u) => u.uid === uid ? { ...u, note: editNote[uid] ?? "" } : u));
+      setUsers((prev) => prev.map((u) => u.id === uid ? { ...u, note: editNote[uid] ?? "" } : u));
       setMessage({ type: "success", text: "Note saved." });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
@@ -96,35 +96,35 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.uid}>
+                <tr key={u.id}>
                   <td>
                     <div className="user-cell">
-                      <div className="user-avatar-sm">{u.displayName?.[0]?.toUpperCase() ?? "?"}</div>
+                      <div className="user-avatar-sm">{u.name?.[0]?.toUpperCase() ?? "?"}</div>
                       <div>
-                        <span className="user-cell-name">{u.displayName ?? "—"}</span>
+                        <span className="user-cell-name">{u.name ?? "—"}</span>
                         <span className="user-cell-email">{u.email}</span>
                       </div>
                     </div>
                   </td>
-                  <td><span className="table-date">{formatDate(u.createdAt)}</span></td>
-                  <td><span className="table-date">{timeAgo(u.lastLogin)}</span></td>
-                  <td><span className="login-count">{u.loginCount ?? 0}</span></td>
+                  <td><span className="table-date">{formatDate(u.created_at)}</span></td>
+                  <td><span className="table-date">{timeAgo(u.last_login)}</span></td>
+                  <td><span className="login-count">{u.login_count ?? 0}</span></td>
                   <td>
                     <input
                       className="note-input"
                       placeholder="Add a note…"
-                      value={editNote[u.uid] ?? u.note ?? ""}
-                      onChange={(e) => setEditNote((p) => ({ ...p, [u.uid]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveNote(u.uid); }}
+                      value={editNote[u.id] ?? u.note ?? ""}
+                      onChange={(e) => setEditNote((p) => ({ ...p, [u.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveNote(u.id); }}
                     />
                   </td>
                   <td>
                     <button
                       className="btn-save-note"
-                      disabled={saving[u.uid]}
-                      onClick={() => saveNote(u.uid)}
+                      disabled={saving[u.id]}
+                      onClick={() => saveNote(u.id)}
                     >
-                      {saving[u.uid] ? "…" : "Save"}
+                      {saving[u.id] ? "…" : "Save"}
                     </button>
                   </td>
                 </tr>

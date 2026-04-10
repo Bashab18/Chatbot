@@ -1,8 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  collection, onSnapshot, query, orderBy, where,
-} from "firebase/firestore";
-import { db } from "../../firebase";
 import { useAuth } from "../../context/AuthContext";
 import Message from "../../components/Message";
 
@@ -28,57 +24,44 @@ export default function ChatHistoryPage() {
   const [messages, setMessages]     = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const bottomRef = useRef(null);
-  const unsubChats = useRef(null);
-  const unsubMsgs  = useRef(null);
 
   // Load users
   useEffect(() => {
-    async function load() {
-      try {
-        const token = await getToken();
-        const res = await fetch("/api/admin/users", { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        setUsers((data.users ?? []).filter((u) => u.role !== "admin"));
-      } catch {}
-      setLoadingUsers(false);
-    }
-    load();
+    const token = getToken();
+    fetch("/api/admin/users", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => setUsers((d.users ?? []).filter((u) => u.role !== "admin")))
+      .catch(() => {})
+      .finally(() => setLoadingUsers(false));
   }, [getToken]);
 
-  // Subscribe to chats for selected user
+  // Load chats for selected user
   useEffect(() => {
-    if (unsubChats.current) { unsubChats.current(); unsubChats.current = null; }
     setChats([]);
     setSelectedChat(null);
     setMessages([]);
     if (!selectedUser) return;
+    const token = getToken();
+    fetch(`/api/admin/conversations?userId=${selectedUser.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setChats(d.conversations ?? []))
+      .catch(() => {});
+  }, [selectedUser, getToken]);
 
-    const q = query(
-      collection(db, "chats"),
-      where("userId", "==", selectedUser.uid),
-      orderBy("updatedAt", "desc")
-    );
-    unsubChats.current = onSnapshot(q, (snap) => {
-      setChats(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-    return () => { if (unsubChats.current) unsubChats.current(); };
-  }, [selectedUser]);
-
-  // Subscribe to messages for selected chat
+  // Load messages for selected chat
   useEffect(() => {
-    if (unsubMsgs.current) { unsubMsgs.current(); unsubMsgs.current = null; }
     setMessages([]);
     if (!selectedChat) return;
-
-    const q = query(
-      collection(db, "chats", selectedChat, "messages"),
-      orderBy("timestamp", "asc")
-    );
-    unsubMsgs.current = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-    return () => { if (unsubMsgs.current) unsubMsgs.current(); };
-  }, [selectedChat]);
+    const token = getToken();
+    fetch(`/api/admin/conversations/${selectedChat}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setMessages(d.messages ?? []))
+      .catch(() => {});
+  }, [selectedChat, getToken]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -98,17 +81,17 @@ export default function ChatHistoryPage() {
           {loadingUsers ? (
             <div className="admin-loading"><div className="auth-spinner" /></div>
           ) : users.length === 0 ? (
-            <p className="admin-empty">No users yet.</p>
+            <p className="admin-empty" style={{ padding: "12px" }}>No users yet.</p>
           ) : (
             users.map((u) => (
               <button
-                key={u.uid}
-                className={`history-user-item${selectedUser?.uid === u.uid ? " active" : ""}`}
+                key={u.id}
+                className={`history-user-item${selectedUser?.id === u.id ? " active" : ""}`}
                 onClick={() => setSelectedUser(u)}
               >
-                <div className="user-avatar-sm">{u.displayName?.[0]?.toUpperCase() ?? "?"}</div>
+                <div className="user-avatar-sm">{u.name?.[0]?.toUpperCase() ?? "?"}</div>
                 <div className="history-user-info">
-                  <span className="user-cell-name">{u.displayName ?? "Unknown"}</span>
+                  <span className="user-cell-name">{u.name ?? "Unknown"}</span>
                   <span className="user-cell-email">{u.email}</span>
                 </div>
               </button>
@@ -119,12 +102,12 @@ export default function ChatHistoryPage() {
         {/* Chat list */}
         <div className="history-chats">
           <h3 className="history-panel-title">
-            {selectedUser ? `${selectedUser.displayName}'s chats` : "Select a user"}
+            {selectedUser ? `${selectedUser.name}'s chats` : "Select a user"}
           </h3>
           {!selectedUser ? (
-            <p className="admin-empty">Select a user on the left to see their chats.</p>
+            <p className="admin-empty" style={{ padding: "12px" }}>Select a user to see their chats.</p>
           ) : chats.length === 0 ? (
-            <p className="admin-empty">No conversations found.</p>
+            <p className="admin-empty" style={{ padding: "12px" }}>No conversations found.</p>
           ) : (
             chats.map((chat) => (
               <button
@@ -133,7 +116,7 @@ export default function ChatHistoryPage() {
                 onClick={() => setSelectedChat(chat.id)}
               >
                 <span className="history-chat-title">{chat.title}</span>
-                <span className="history-chat-time">{timeAgo(chat.updatedAt)}</span>
+                <span className="history-chat-time">{timeAgo(chat.updated_at)}</span>
               </button>
             ))
           )}
@@ -153,12 +136,7 @@ export default function ChatHistoryPage() {
           ) : (
             <div className="history-msg-list">
               {messages.map((msg, i) => (
-                <Message
-                  key={msg.id ?? i}
-                  role={msg.role}
-                  text={msg.text}
-                  msgId={msg.id ?? i}
-                />
+                <Message key={msg.id ?? i} role={msg.role} text={msg.text} msgId={msg.id ?? i} />
               ))}
               <div ref={bottomRef} />
             </div>

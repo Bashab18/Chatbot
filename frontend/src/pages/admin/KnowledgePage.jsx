@@ -12,7 +12,7 @@ export default function KnowledgePage() {
 
   async function loadDocs() {
     try {
-      const token = await getToken();
+      const token = getToken();
       const res = await fetch("/api/documents", { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setDocuments(data.documents ?? []);
@@ -33,7 +33,7 @@ export default function KnowledgePage() {
     const fd = new FormData();
     for (const f of files) fd.append("files", f);
     try {
-      const token = await getToken();
+      const token = getToken();
       const res = await fetch("/api/documents", {
         method:  "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -55,7 +55,7 @@ export default function KnowledgePage() {
 
   async function deleteDoc(id) {
     try {
-      const token = await getToken();
+      const token = getToken();
       await fetch(`/api/documents/${id}`, {
         method:  "DELETE",
         headers: { Authorization: `Bearer ${token}` },

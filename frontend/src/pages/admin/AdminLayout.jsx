@@ -53,7 +53,7 @@ const NAV = [
 ];
 
 export default function AdminLayout() {
-  const { user, profile, logout } = useAuth();
+  const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
@@ -97,10 +97,10 @@ export default function AdminLayout() {
 
         <div className="admin-sidebar-footer">
           <div className="sidebar-user">
-            <div className="user-avatar admin-badge">{profile?.displayName?.[0]?.toUpperCase() ?? "A"}</div>
+            <div className="user-avatar admin-badge">{user?.name?.[0]?.toUpperCase() ?? "A"}</div>
             {sidebarOpen && (
               <div className="user-info">
-                <span className="user-name">{profile?.displayName ?? user?.email}</span>
+                <span className="user-name">{user?.name ?? user?.email}</span>
                 <span className="user-role admin-tag">Admin</span>
               </div>
             )}
