@@ -20,10 +20,16 @@ export default function Message({ role, text, msgId, onSpeak, isSpeaking }) {
             <ReactMarkdown
               components={{
                 code({ inline, className, children, ...props }) {
+                  const lang = (className || "").replace("language-", "");
                   return inline ? (
                     <code className="inline-code" {...props}>{children}</code>
                   ) : (
                     <div className="code-block-wrapper">
+                      {lang && (
+                        <div className="code-block-header">
+                          <span className="code-block-lang">{lang}</span>
+                        </div>
+                      )}
                       <pre className="code-block">
                         <code {...props}>{children}</code>
                       </pre>

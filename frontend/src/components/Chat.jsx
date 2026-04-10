@@ -174,9 +174,16 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
       <div className="chat-messages">
         {isEmpty && (
           <div className="empty-state">
-            <div className="gemini-logo">✦</div>
-            <h2>How can I help you today?</h2>
-            <p>Gemini {modelLabel} · {settings?.style ?? "balanced"} mode{docCount > 0 ? ` · ${docCount} doc${docCount > 1 ? "s" : ""} loaded` : ""}</p>
+            <div className="empty-logo">✦</div>
+            <h2>How can I help you?</h2>
+            <p>Gemini {modelLabel} · {settings?.style ?? "balanced"}{docCount > 0 ? ` · ${docCount} doc${docCount > 1 ? "s" : ""} loaded` : ""}</p>
+            <div className="suggestion-chips">
+              {["Explain a concept simply", "Help me write some code", "Summarize key points", "Brainstorm ideas with me"].map((s) => (
+                <button key={s} className="suggestion-chip" onClick={() => setInput(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
