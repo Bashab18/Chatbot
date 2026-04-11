@@ -64,7 +64,7 @@ function removeDocument(store, id) {
 }
 
 // ── Semantic search ───────────────────────────────────────────────────────
-function search(store, queryEmbedding, topK = 4, minScore = 0.45) {
+function search(store, queryEmbedding, topK = 4, minScore = 0.20) {
   if (!store.chunks.length) return [];
   return store.chunks
     .map((chunk) => ({

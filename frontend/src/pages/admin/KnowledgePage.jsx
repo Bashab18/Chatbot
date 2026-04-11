@@ -15,8 +15,11 @@ export default function KnowledgePage() {
       const token = getToken();
       const res = await fetch("/api/documents", { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed to load documents (${res.status})`);
       setDocuments(data.documents ?? []);
-    } catch {}
+    } catch (err) {
+      showMsg("error", `Could not load documents: ${err.message}`);
+    }
   }
 
   useEffect(() => { loadDocs(); }, []);
@@ -40,10 +43,12 @@ export default function KnowledgePage() {
         body:    fd,
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
       const ok  = (data.results ?? []).filter((r) => r.ok);
       const bad = (data.results ?? []).filter((r) => !r.ok);
       if (ok.length)  showMsg("success", `${ok.length} file${ok.length > 1 ? "s" : ""} indexed successfully.`);
-      if (bad.length) showMsg("error", `Failed: ${bad.map((r) => r.name).join(", ")}`);
+      if (bad.length) showMsg("error", `Failed: ${bad.map((r) => `${r.name}${r.error ? ` (${r.error})` : ""}`).join("; ")}`);
+      if (!ok.length && !bad.length) showMsg("error", "No files were processed. Check file format.");
       await loadDocs();
     } catch (err) {
       showMsg("error", err.message);

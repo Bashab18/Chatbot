@@ -32,7 +32,7 @@ const DEFAULT_BOT = {
   style:          "balanced",   // precise | balanced | creative
   // RAG
   ragTopK:        5,
-  ragMinScore:    0.40,
+  ragMinScore:    0.20,
   refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
   // Appearance
   theme:          "dark",
