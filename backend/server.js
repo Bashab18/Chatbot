@@ -305,8 +305,15 @@ app.get("/api/admin/settings", requireAdmin, (req, res) => {
 });
 
 app.put("/api/admin/settings", requireAdmin, (req, res) => {
-  const { model, systemPrompt } = req.body;
-  setBotSettings({ ...(model && { model }), ...(systemPrompt !== undefined && { systemPrompt }) });
+  const allowed = [
+    "model", "systemPrompt", "style", "ragTopK", "ragMinScore", "refusalMessage",
+    "theme", "ttsEnabled", "ttsVoiceId", "ttsModelId", "ttsStability", "ttsSimilarity",
+  ];
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+  setBotSettings(updates);
   res.json({ message: "Settings saved" });
 });
 
