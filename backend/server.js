@@ -6,7 +6,7 @@ const path      = require("path");
 const fs        = require("fs");
 const crypto    = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { embedText }     = require("./rag/embed");
+const { embedText, embedBatch } = require("./rag/embed");
 const { chunkText }     = require("./rag/chunker");
 const { load, save, addDocument, removeDocument, search } = require("./rag/store");
 const db        = require("./db");
@@ -388,11 +388,8 @@ async function indexDocument(id, name, text) {
   const rawChunks = chunkText(text);
   if (rawChunks.length === 0) throw new Error("No extractable text found");
   console.log(`Indexing "${name}": ${rawChunks.length} chunks…`);
-  const chunks = [];
-  for (const t of rawChunks) {
-    const embedding = await embedText(t);
-    chunks.push({ text: t, embedding });
-  }
+  const embeddings = await embedBatch(rawChunks);
+  const chunks = rawChunks.map((t, i) => ({ text: t, embedding: embeddings[i] }));
   addDocument(store, { id, name, chunks });
   save(store);
   console.log(`Done indexing "${name}"`);
