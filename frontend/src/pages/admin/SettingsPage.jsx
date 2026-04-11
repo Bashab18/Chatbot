@@ -259,7 +259,7 @@ export default function SettingsPage() {
       setLoading(false);
     }
     load();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   async function save(e) {
     e.preventDefault();
