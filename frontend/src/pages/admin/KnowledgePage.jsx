@@ -143,7 +143,7 @@ export default function KnowledgePage() {
                 </div>
                 <div className="doc-info">
                   <span className="doc-name">{doc.name}</span>
-                  <span className="doc-meta">{doc.chunks} chunks</span>
+                  <span className="doc-meta">{doc.chunkCount} chunks</span>
                 </div>
                 <button
                   className="icon-btn danger-btn"

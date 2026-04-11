@@ -1,71 +1,76 @@
-const fs = require("fs");
-const path = require("path");
+const db = require("../db");
 
-const DATA_DIR  = process.env.DATA_DIR || path.join(__dirname, "../data");
-const DATA_FILE = path.join(DATA_DIR, "vectors.json");
-
+// ── Load in-memory store from SQLite on startup ───────────────────────────
 function load() {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    }
+    const documents = db.prepare(
+      "SELECT id, name, chunk_count AS chunkCount, added_at AS addedAt FROM kb_documents"
+    ).all();
+
+    const chunks = db.prepare(
+      "SELECT doc_id AS docId, doc_name AS docName, text, embedding FROM kb_chunks"
+    ).all().map((c) => ({ ...c, embedding: JSON.parse(c.embedding) }));
+
+    return { documents, chunks };
   } catch (e) {
     console.error("Vector store load error:", e.message);
+    return { documents: [], chunks: [] };
   }
-  return { documents: [], chunks: [] };
 }
 
-function save(store) {
-  const dir = path.dirname(DATA_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(store));
-}
+// No-op: all writes now happen directly in addDocument / removeDocument
+function save() {}
 
+// ── Cosine similarity ─────────────────────────────────────────────────────
 function cosine(a, b) {
   let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
+    dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i];
   }
   const denom = Math.sqrt(na) * Math.sqrt(nb);
   return denom === 0 ? 0 : dot / denom;
 }
 
+// ── Add (or replace) a document ───────────────────────────────────────────
 function addDocument(store, { id, name, chunks }) {
-  // Remove old version if re-uploading same-named doc
-  store.documents = store.documents.filter((d) => d.id !== id);
-  store.chunks = store.chunks.filter((c) => c.docId !== id);
+  removeDocument(store, id); // remove old version if re-indexing same id
 
-  store.documents.push({
-    id,
-    name,
-    chunkCount: chunks.length,
-    addedAt: Date.now(),
-  });
+  // Persist to SQLite in a single transaction for speed
+  db.transaction(() => {
+    db.prepare(
+      "INSERT INTO kb_documents (id, name, chunk_count, added_at) VALUES (?, ?, ?, ?)"
+    ).run(id, name, chunks.length, Date.now());
 
-  for (const chunk of chunks) {
-    store.chunks.push({
-      docId: id,
-      docName: name,
-      text: chunk.text,
-      embedding: chunk.embedding,
-    });
+    const ins = db.prepare(
+      "INSERT INTO kb_chunks (doc_id, doc_name, text, embedding) VALUES (?, ?, ?, ?)"
+    );
+    for (const c of chunks) ins.run(id, name, c.text, JSON.stringify(c.embedding));
+  })();
+
+  // Mirror in in-memory store for fast cosine search
+  store.documents.push({ id, name, chunkCount: chunks.length, addedAt: Date.now() });
+  for (const c of chunks) {
+    store.chunks.push({ docId: id, docName: name, text: c.text, embedding: c.embedding });
   }
 }
 
+// ── Remove a document ─────────────────────────────────────────────────────
 function removeDocument(store, id) {
+  // CASCADE on kb_chunks removes all associated chunks automatically
+  db.prepare("DELETE FROM kb_documents WHERE id = ?").run(id);
+
   store.documents = store.documents.filter((d) => d.id !== id);
-  store.chunks = store.chunks.filter((c) => c.docId !== id);
+  store.chunks    = store.chunks.filter((c) => c.docId !== id);
 }
 
+// ── Semantic search ───────────────────────────────────────────────────────
 function search(store, queryEmbedding, topK = 4, minScore = 0.45) {
   if (!store.chunks.length) return [];
   return store.chunks
     .map((chunk) => ({
-      text: chunk.text,
+      text:    chunk.text,
       docName: chunk.docName,
-      score: cosine(queryEmbedding, chunk.embedding),
+      score:   cosine(queryEmbedding, chunk.embedding),
     }))
     .filter((r) => r.score >= minScore)
     .sort((a, b) => b.score - a.score)

@@ -44,6 +44,22 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS kb_documents (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    added_at    INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS kb_chunks (
+    rowid      INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id     TEXT NOT NULL,
+    doc_name   TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    embedding  TEXT NOT NULL,
+    FOREIGN KEY (doc_id) REFERENCES kb_documents(id) ON DELETE CASCADE
+  );
 `);
 
 module.exports = db;
