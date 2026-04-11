@@ -25,7 +25,14 @@ console.log(`Vector store: ${store.documents.length} docs, ${store.chunks.length
 function uid() { return crypto.randomUUID(); }
 
 // ── Bot settings helpers ──────────────────────────────────────────────
-const DEFAULT_BOT = { model: "gemini-1.5-flash", systemPrompt: "You are a helpful assistant." };
+const DEFAULT_BOT = {
+  model:          "gemini-1.5-flash",
+  systemPrompt:   "You are a helpful assistant.",
+  style:          "balanced",   // precise | balanced | creative
+  ragTopK:        5,
+  ragMinScore:    0.40,
+  refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
+};
 
 function getBotSettings() {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'chatbot'").get();
@@ -163,7 +170,9 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     .run(userMsgId, conversationId, "user", message, now);
   db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
 
-  const { model, systemPrompt } = getBotSettings();
+  const { model, systemPrompt, style, ragTopK, ragMinScore, refusalMessage } = getBotSettings();
+  const STYLE_TEMP = { precise: 0.2, balanced: 0.7, creative: 1.2 };
+  const temperature = STYLE_TEMP[style] ?? 0.7;
 
   // KB retrieval
   if (store.chunks.length === 0) {
@@ -177,9 +186,9 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   let contextText = "";
   try {
     const queryEmbedding = await embedText(message);
-    const hits = search(store, queryEmbedding, 5, 0.40);
+    const hits = search(store, queryEmbedding, ragTopK, ragMinScore);
     if (hits.length === 0) {
-      const reply = "I'm sorry, I don't have information about that in my knowledge base.";
+      const reply = refusalMessage;
       const botMsgId = uid();
       db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
         .run(botMsgId, conversationId, "assistant", reply, Date.now());
@@ -193,7 +202,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
   const fullSystem =
     `${systemPrompt}\n\n` +
-    `IMPORTANT: Only answer from the context below. If not covered, respond: "I'm sorry, I don't have information about that in my knowledge base."\n\n` +
+    `IMPORTANT: Only answer from the context below. If the question is not covered respond exactly: "${refusalMessage}"\n\n` +
     `<context>\n${contextText}\n</context>`;
 
   try {
@@ -204,7 +213,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const geminiModel = genAI.getGenerativeModel({
       model,
       systemInstruction: fullSystem,
-      generationConfig:  { temperature: 0.4 },
+      generationConfig:  { temperature },
     });
     const chat   = geminiModel.startChat({ history: geminiHistory });
     const result = await chat.sendMessage(message);
