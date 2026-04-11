@@ -305,18 +305,29 @@ app.get("/api/admin/settings", requireAdmin, (req, res) => {
 });
 
 app.put("/api/admin/settings", requireAdmin, (req, res) => {
-  const allowed = [
-    "model", "systemPrompt", "style", "ragTopK", "ragMinScore", "refusalMessage",
-    "theme", "ttsEnabled", "ttsVoiceId", "ttsModelId", "ttsStability", "ttsSimilarity",
-  ];
+  const b = req.body;
   const updates = {};
-  for (const key of allowed) {
-    if (req.body[key] !== undefined) updates[key] = req.body[key];
+
+  // String fields
+  for (const k of ["model", "systemPrompt", "style", "refusalMessage", "theme", "ttsVoiceId", "ttsModelId"]) {
+    if (b[k] !== undefined) updates[k] = String(b[k]);
   }
+  // Numeric fields
+  for (const k of ["ragTopK", "ragMinScore", "ttsStability", "ttsSimilarity"]) {
+    if (b[k] !== undefined) {
+      const n = parseFloat(b[k]);
+      if (!isNaN(n)) updates[k] = n;
+    }
+  }
+  // Boolean fields
+  if (b.ttsEnabled !== undefined) {
+    updates.ttsEnabled = b.ttsEnabled === true || b.ttsEnabled === "true";
+  }
+
   try {
     setBotSettings(updates);
     const saved = getBotSettings();
-    console.log("[settings] saved:", JSON.stringify(saved));
+    console.log("[settings] saved ttsEnabled=%s voiceId=%s", saved.ttsEnabled, saved.ttsVoiceId);
     res.json({ message: "Settings saved", settings: saved });
   } catch (err) {
     console.error("[settings] save error:", err.message);

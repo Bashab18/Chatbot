@@ -250,13 +250,16 @@ export default function SettingsPage() {
       try {
         const token = getToken();
         const res  = await fetch("/api/admin/settings", { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
         const data = await res.json();
         setS({ ...DEFAULTS, ...data });
-      } catch {}
+      } catch (err) {
+        setMessage({ type: "error", text: `Could not load settings: ${err.message}` });
+      }
       setLoading(false);
     }
     load();
-  }, [getToken]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save(e) {
     e.preventDefault();
