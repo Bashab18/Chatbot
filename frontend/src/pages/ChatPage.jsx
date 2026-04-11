@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import Message from "../components/Message";
 
+const TTS_DEFAULTS = { ttsEnabled: false, ttsVoiceId: "21m00Tcm4TlvDq8ikWAM", ttsModelId: "eleven_turbo_v2_5", ttsStability: 0.5, ttsSimilarity: 0.75 };
+
 export default function ChatPage() {
   const { user, logout, getToken } = useAuth();
 
@@ -15,6 +17,7 @@ export default function ChatPage() {
   const [editingId, setEditingId]         = useState(null);
   const [editTitle, setEditTitle]         = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [ttsSettings, setTtsSettings]    = useState(TTS_DEFAULTS);
 
   const audioRef    = useRef(null);
   const bottomRef   = useRef(null);
@@ -31,6 +34,22 @@ export default function ChatPage() {
     if (!res.ok) throw new Error(data.error || "Request failed");
     return data;
   }, [getToken]);
+
+  // ── Fetch global settings (theme + TTS) ──────────────────────────────
+  useEffect(() => {
+    apiFetch("/api/settings")
+      .then((data) => {
+        if (data.theme) document.documentElement.setAttribute("data-theme", data.theme);
+        setTtsSettings({
+          ttsEnabled:   data.ttsEnabled   ?? false,
+          ttsVoiceId:   data.ttsVoiceId   ?? TTS_DEFAULTS.ttsVoiceId,
+          ttsModelId:   data.ttsModelId   ?? TTS_DEFAULTS.ttsModelId,
+          ttsStability: data.ttsStability ?? TTS_DEFAULTS.ttsStability,
+          ttsSimilarity:data.ttsSimilarity ?? TTS_DEFAULTS.ttsSimilarity,
+        });
+      })
+      .catch(() => {});
+  }, [apiFetch]);
 
   // ── Load conversations ────────────────────────────────────────────────
   async function loadConversations() {
@@ -183,7 +202,13 @@ export default function ChatPage() {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          text,
+          voiceId:        ttsSettings.ttsVoiceId,
+          modelId:        ttsSettings.ttsModelId,
+          stability:      ttsSettings.ttsStability,
+          similarityBoost:ttsSettings.ttsSimilarity,
+        }),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const blob  = await res.blob();
@@ -195,7 +220,7 @@ export default function ChatPage() {
     } catch (err) {
       console.error("TTS:", err.message); setSpeakingId(null);
     }
-  }, [speakingId]);
+  }, [speakingId, ttsSettings]);
 
   // ── Clear messages ────────────────────────────────────────────────────
   async function clearChat() {
@@ -220,7 +245,7 @@ export default function ChatPage() {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="app" data-theme="dark">
+    <div className="app">
       {/* Sidebar */}
       <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
         <div className="sidebar-header">
@@ -344,7 +369,7 @@ export default function ChatPage() {
             </div>
           ) : (
             messages.map((msg, i) => (
-              <Message key={msg.id} role={msg.role} text={msg.text} msgId={msg.id} onSpeak={handleSpeak} isSpeaking={speakingId === msg.id} />
+              <Message key={msg.id} role={msg.role} text={msg.text} msgId={msg.id} onSpeak={ttsSettings.ttsEnabled ? handleSpeak : null} isSpeaking={speakingId === msg.id} />
             ))
           )}
           {loading && (

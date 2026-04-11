@@ -26,12 +26,22 @@ function uid() { return crypto.randomUUID(); }
 
 // ── Bot settings helpers ──────────────────────────────────────────────
 const DEFAULT_BOT = {
+  // AI
   model:          "gemini-1.5-flash",
   systemPrompt:   "You are a helpful assistant.",
   style:          "balanced",   // precise | balanced | creative
+  // RAG
   ragTopK:        5,
   ragMinScore:    0.40,
   refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
+  // Appearance
+  theme:          "dark",
+  // TTS (ElevenLabs)
+  ttsEnabled:     false,
+  ttsVoiceId:     "21m00Tcm4TlvDq8ikWAM",
+  ttsModelId:     "eleven_turbo_v2_5",
+  ttsStability:   0.5,
+  ttsSimilarity:  0.75,
 };
 
 function getBotSettings() {
@@ -282,6 +292,12 @@ app.get("/api/admin/recent-chats", requireAdmin, (req, res) => {
     "SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 10"
   ).all();
   res.json({ chats: rows });
+});
+
+// Public read-only settings used by the chat UI (theme, TTS defaults, etc.)
+app.get("/api/settings", requireAuth, (req, res) => {
+  const { model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity } = getBotSettings();
+  res.json({ model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity });
 });
 
 app.get("/api/admin/settings", requireAdmin, (req, res) => {
