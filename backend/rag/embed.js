@@ -1,34 +1,27 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+/**
+ * Tokenizer for BM25 keyword search.
+ * Replaces the old Gemini embedding API — no external calls needed.
+ */
 
-let client;
-function getClient() {
-  if (!client) client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  return client;
+const STOPWORDS = new Set([
+  "a","an","the","and","or","but","in","on","at","to","for","of","with",
+  "by","from","is","are","was","were","be","been","being","have","has",
+  "had","do","does","did","will","would","could","should","may","might",
+  "shall","can","not","no","nor","so","yet","both","either","neither",
+  "each","every","all","some","any","few","more","most","other","such",
+  "only","own","same","than","too","very","just","because","as","until",
+  "while","although","though","if","then","else","when","where","who",
+  "what","which","this","that","these","those","it","its","he","she",
+  "they","we","you","i","me","him","her","us","them","their","our","my",
+  "your","his","into","about","up","out","over","after","before","also",
+]);
+
+function tokenize(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
 }
 
-// Single text → embedding (used for query at chat time)
-async function embedText(text) {
-  const model = getClient().getGenerativeModel({ model: "embedding-001" });
-  const result = await model.embedContent(text);
-  return result.embedding.values;
-}
-
-// Batch embed — one API call for all chunks (avoids per-chunk latency / timeouts)
-const BATCH_SIZE = 100; // API limit per batchEmbedContents call
-async function embedBatch(texts) {
-  if (texts.length === 0) return [];
-  const model = getClient().getGenerativeModel({ model: "embedding-001" });
-  const allEmbeddings = [];
-
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const slice = texts.slice(i, i + BATCH_SIZE);
-    const { embeddings } = await model.batchEmbedContents({
-      requests: slice.map((text) => ({ content: { parts: [{ text }] } })),
-    });
-    for (const e of embeddings) allEmbeddings.push(e.values);
-  }
-  return allEmbeddings;
-}
-
-module.exports = { embedText, embedBatch };
-
+module.exports = { tokenize };

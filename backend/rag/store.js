@@ -9,33 +9,29 @@ function load() {
 
     const chunks = db.prepare(
       "SELECT doc_id AS docId, doc_name AS docName, text, embedding FROM kb_chunks"
-    ).all().map((c) => ({ ...c, embedding: JSON.parse(c.embedding) }));
+    ).all().map((c) => {
+      const parsed = JSON.parse(c.embedding);
+      // Discard old float-array embeddings from before the BM25 migration
+      if (!Array.isArray(parsed) || (parsed.length > 0 && typeof parsed[0] !== "string")) {
+        return null;
+      }
+      return { docId: c.docId, docName: c.docName, text: c.text, tokens: parsed };
+    }).filter(Boolean);
 
     return { documents, chunks };
   } catch (e) {
-    console.error("Vector store load error:", e.message);
+    console.error("Store load error:", e.message);
     return { documents: [], chunks: [] };
   }
 }
 
-// No-op: all writes now happen directly in addDocument / removeDocument
+// No-op: all writes happen directly in addDocument / removeDocument
 function save() {}
-
-// ── Cosine similarity ─────────────────────────────────────────────────────
-function cosine(a, b) {
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i];
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom === 0 ? 0 : dot / denom;
-}
 
 // ── Add (or replace) a document ───────────────────────────────────────────
 function addDocument(store, { id, name, chunks }) {
-  removeDocument(store, id); // remove old version if re-indexing same id
+  removeDocument(store, id);
 
-  // Persist to SQLite in a single transaction for speed
   db.transaction(() => {
     db.prepare(
       "INSERT INTO kb_documents (id, name, chunk_count, added_at) VALUES (?, ?, ?, ?)"
@@ -44,35 +40,61 @@ function addDocument(store, { id, name, chunks }) {
     const ins = db.prepare(
       "INSERT INTO kb_chunks (doc_id, doc_name, text, embedding) VALUES (?, ?, ?, ?)"
     );
-    for (const c of chunks) ins.run(id, name, c.text, JSON.stringify(c.embedding));
+    // Store tokens (string array) in the embedding column
+    for (const c of chunks) ins.run(id, name, c.text, JSON.stringify(c.tokens));
   })();
 
-  // Mirror in in-memory store for fast cosine search
   store.documents.push({ id, name, chunkCount: chunks.length, addedAt: Date.now() });
   for (const c of chunks) {
-    store.chunks.push({ docId: id, docName: name, text: c.text, embedding: c.embedding });
+    store.chunks.push({ docId: id, docName: name, text: c.text, tokens: c.tokens });
   }
 }
 
 // ── Remove a document ─────────────────────────────────────────────────────
 function removeDocument(store, id) {
-  // CASCADE on kb_chunks removes all associated chunks automatically
   db.prepare("DELETE FROM kb_documents WHERE id = ?").run(id);
-
   store.documents = store.documents.filter((d) => d.id !== id);
   store.chunks    = store.chunks.filter((c) => c.docId !== id);
 }
 
-// ── Semantic search ───────────────────────────────────────────────────────
-function search(store, queryEmbedding, topK = 4, minScore = 0.20) {
-  if (!store.chunks.length) return [];
+// ── BM25 keyword search ───────────────────────────────────────────────────
+const K1 = 1.5;
+const B  = 0.75;
+
+function search(store, queryTokens, topK = 4, minScore = 0) {
+  if (!store.chunks.length || !queryTokens.length) return [];
+
+  const N      = store.chunks.length;
+  const avgLen = store.chunks.reduce((s, c) => s + (c.tokens.length || 1), 0) / N;
+
+  // Document frequency: how many chunks contain each term
+  const df = new Map();
+  for (const chunk of store.chunks) {
+    for (const term of new Set(chunk.tokens)) {
+      df.set(term, (df.get(term) || 0) + 1);
+    }
+  }
+
+  const uniqueQuery = [...new Set(queryTokens)];
+
   return store.chunks
-    .map((chunk) => ({
-      text:    chunk.text,
-      docName: chunk.docName,
-      score:   cosine(queryEmbedding, chunk.embedding),
-    }))
-    .filter((r) => r.score >= minScore)
+    .map((chunk) => {
+      const tf  = new Map();
+      for (const t of chunk.tokens) tf.set(t, (tf.get(t) || 0) + 1);
+      const len = chunk.tokens.length || 1;
+
+      let score = 0;
+      for (const term of uniqueQuery) {
+        const tfVal = tf.get(term) || 0;
+        if (!tfVal) continue;
+        const dfVal = df.get(term) || 0;
+        const idf   = Math.log((N - dfVal + 0.5) / (dfVal + 0.5) + 1);
+        const norm  = (tfVal * (K1 + 1)) / (tfVal + K1 * (1 - B + B * len / avgLen));
+        score      += idf * norm;
+      }
+      return { text: chunk.text, docName: chunk.docName, score };
+    })
+    .filter((r) => r.score > minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 }

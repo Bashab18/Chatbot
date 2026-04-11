@@ -6,7 +6,7 @@ const path      = require("path");
 const fs        = require("fs");
 const crypto    = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { embedText, embedBatch } = require("./rag/embed");
+const { tokenize } = require("./rag/embed");
 const { chunkText }     = require("./rag/chunker");
 const { load, save, addDocument, removeDocument, search } = require("./rag/store");
 const db        = require("./db");
@@ -32,7 +32,7 @@ const DEFAULT_BOT = {
   style:          "balanced",   // precise | balanced | creative
   // RAG
   ragTopK:        5,
-  ragMinScore:    0.20,
+  ragMinScore:    0,
   refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
   // Appearance
   theme:          "dark",
@@ -193,22 +193,16 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     return res.json({ userMsgId, botMsgId, reply });
   }
 
-  let contextText = "";
-  try {
-    const queryEmbedding = await embedText(message);
-    const hits = search(store, queryEmbedding, ragTopK, ragMinScore);
-    if (hits.length === 0) {
-      const reply = refusalMessage;
-      const botMsgId = uid();
-      db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
-        .run(botMsgId, conversationId, "assistant", reply, Date.now());
-      return res.json({ userMsgId, botMsgId, reply });
-    }
-    contextText = hits.map((h) => `[Source: ${h.docName}]\n${h.text}`).join("\n\n---\n\n");
-  } catch (err) {
-    console.error("RAG error:", err.message);
-    return res.status(500).json({ error: "Failed to search knowledge base" });
+  const queryTokens = tokenize(message);
+  const hits = search(store, queryTokens, ragTopK, ragMinScore);
+  if (hits.length === 0) {
+    const reply = refusalMessage;
+    const botMsgId = uid();
+    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
+      .run(botMsgId, conversationId, "assistant", reply, Date.now());
+    return res.json({ userMsgId, botMsgId, reply });
   }
+  const contextText = hits.map((h) => `[Source: ${h.docName}]\n${h.text}`).join("\n\n---\n\n");
 
   const fullSystem =
     `${systemPrompt}\n\n` +
@@ -384,12 +378,11 @@ async function extractText(filePath, originalname) {
   return fs.readFileSync(filePath, "utf8");
 }
 
-async function indexDocument(id, name, text) {
+function indexDocument(id, name, text) {
   const rawChunks = chunkText(text);
   if (rawChunks.length === 0) throw new Error("No extractable text found");
   console.log(`Indexing "${name}": ${rawChunks.length} chunks…`);
-  const embeddings = await embedBatch(rawChunks);
-  const chunks = rawChunks.map((t, i) => ({ text: t, embedding: embeddings[i] }));
+  const chunks = rawChunks.map((t) => ({ text: t, tokens: tokenize(t) }));
   addDocument(store, { id, name, chunks });
   save(store);
   console.log(`Done indexing "${name}"`);
@@ -404,7 +397,7 @@ app.post("/api/documents", requireAdmin, upload.array("files", 20), async (req, 
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     try {
       const text = await extractText(filePath, originalname);
-      await indexDocument(id, originalname, text);
+      indexDocument(id, originalname, text);
       results.push({ id, name: originalname, ok: true });
     } catch (err) {
       console.error(`Indexing error for ${originalname}:`, err.message);
@@ -421,7 +414,7 @@ app.post("/api/documents/text", requireAdmin, async (req, res) => {
   if (!name || !content) return res.status(400).json({ error: "name and content are required" });
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   try {
-    await indexDocument(id, name, content);
+    indexDocument(id, name, content);
     res.json({ id, name, message: "Text indexed" });
   } catch (err) {
     console.error("Text indexing error:", err.message);

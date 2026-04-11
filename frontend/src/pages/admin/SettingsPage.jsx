@@ -44,7 +44,7 @@ const DEFAULTS = {
   systemPrompt:   "",
   style:          "balanced",
   ragTopK:        5,
-  ragMinScore:    0.20,
+  ragMinScore:    0,
   refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
   theme:          "dark",
   ttsEnabled:     true,
