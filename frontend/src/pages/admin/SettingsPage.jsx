@@ -47,7 +47,7 @@ const DEFAULTS = {
   ragMinScore:    0.40,
   refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
   theme:          "dark",
-  ttsEnabled:     false,
+  ttsEnabled:     true,
   ttsVoiceId:     "21m00Tcm4TlvDq8ikWAM",
   ttsModelId:     "eleven_turbo_v2_5",
   ttsStability:   0.5,

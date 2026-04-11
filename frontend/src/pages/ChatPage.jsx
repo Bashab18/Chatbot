@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import Message from "../components/Message";
 
 const TTS_DEFAULTS = {
-  ttsEnabled: false, ttsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+  ttsEnabled: true, ttsVoiceId: "21m00Tcm4TlvDq8ikWAM",
   ttsModelId: "eleven_turbo_v2_5", ttsStability: 0.5, ttsSimilarity: 0.75,
 };
 
@@ -63,9 +63,14 @@ export default function ChatPage() {
   const [botSettings, setBotSettings]    = useState({ model: null, style: null });
   const [showScrollBtn, setShowScrollBtn]= useState(false);
 
-  const audioRef    = useRef(null);
-  const bottomRef   = useRef(null);
-  const textareaRef = useRef(null);
+  const audioRef       = useRef(null);
+  const bottomRef      = useRef(null);
+  const textareaRef    = useRef(null);
+  const recognitionRef = useRef(null);
+
+  // Speech-to-text availability (Web Speech API)
+  const [hasSpeech]    = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
+  const [isRecording, setIsRecording] = useState(false);
 
   // ── API helper ────────────────────────────────────────────────────────
   const apiFetch = useCallback(async (url, opts = {}) => {
@@ -222,6 +227,28 @@ export default function ChatPage() {
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
+
+  // ── Voice input (Speech-to-text) ──────────────────────────────────────
+  function toggleRecording() {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onstart  = () => setIsRecording(true);
+    rec.onend    = () => { setIsRecording(false); recognitionRef.current = null; };
+    rec.onerror  = () => { setIsRecording(false); recognitionRef.current = null; };
+    rec.onresult = (e) => {
+      const transcript = Array.from(e.results).map((r) => r[0].transcript).join("");
+      setInput(transcript);
+    };
+    recognitionRef.current = rec;
+    rec.start();
+  }
 
   // ── TTS ───────────────────────────────────────────────────────────────
   const handleSpeak = useCallback(async (text, msgId) => {
@@ -482,6 +509,31 @@ export default function ChatPage() {
               rows={1}
               disabled={loading || !activeId}
             />
+            {hasSpeech && (
+              <button
+                type="button"
+                className={`mic-btn${isRecording ? " recording" : ""}`}
+                onClick={toggleRecording}
+                disabled={loading || !activeId}
+                title={isRecording ? "Stop recording" : "Speak your message"}
+              >
+                {isRecording ? (
+                  /* Waveform / recording indicator */
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="2" y="7" width="3" height="10" rx="1.5"/>
+                    <rect x="7" y="4" width="3" height="16" rx="1.5"/>
+                    <rect x="12" y="7" width="3" height="10" rx="1.5"/>
+                    <rect x="17" y="4" width="3" height="16" rx="1.5"/>
+                  </svg>
+                ) : (
+                  /* Microphone */
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z"/>
+                    <path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.93V20H9a1 1 0 0 0 0 2h6a1 1 0 0 0 0-2h-2v-2.07A7 7 0 0 0 19 11z"/>
+                  </svg>
+                )}
+              </button>
+            )}
             <button
               className="send-btn"
               onClick={sendMessage}

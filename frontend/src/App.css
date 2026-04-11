@@ -498,6 +498,25 @@ body {
 }
 .new-chat-cta:hover { transform: translateY(-2px); box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 45%, transparent); }
 
+/* ── Mic button ───────────────────────────────── */
+.mic-btn {
+  background: none; border: none; color: var(--muted);
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: color .15s, background .15s;
+}
+.mic-btn:hover:not(:disabled) { color: var(--text); background: var(--surface2); }
+.mic-btn:disabled { opacity: .35; cursor: not-allowed; }
+.mic-btn.recording {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  animation: pulse-mic 1.2s ease-in-out infinite;
+}
+@keyframes pulse-mic {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 35%, transparent); }
+  50%       { box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 0%, transparent); }
+}
+
 /* ── Send button loading arc ──────────────────── */
 .send-loading-arc { animation: spin .75s linear infinite; transform-origin: 8px 8px; }
 
