@@ -78,7 +78,7 @@ export default function KnowledgePage() {
     <div className="admin-page">
       <div className="admin-page-header">
         <h1>Knowledge Base</h1>
-        <p>Upload documents for the chatbot to answer from</p>
+        <p>Upload documents for CIRA to answer from</p>
       </div>
 
       {message && (

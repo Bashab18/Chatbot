@@ -1,11 +1,11 @@
 [
   {
-    "name": "Chatbot A",
+    "name": "CIRA A",
     "port": 5000,
     "dataDir": "data/chatbot-a"
   },
   {
-    "name": "Chatbot B",
+    "name": "CIRA B",
     "port": 5001,
     "dataDir": "data/chatbot-b"
   }

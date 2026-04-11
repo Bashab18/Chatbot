@@ -479,7 +479,7 @@ app.get("/api/health", (req, res) => {
 
 // ── Instance info (name shown in admin UI) ────────────────────────────
 app.get("/api/instance", (req, res) => {
-  res.json({ name: process.env.INSTANCE_NAME || "Chatbot" });
+  res.json({ name: process.env.INSTANCE_NAME || "CIRA" });
 });
 
 // ── Serve frontend build (self-contained mode) ────────────────────────

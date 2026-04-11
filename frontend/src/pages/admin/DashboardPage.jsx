@@ -50,7 +50,7 @@ export default function DashboardPage() {
     <div className="admin-page">
       <div className="admin-page-header">
         <h1>Dashboard</h1>
-        <p>Overview of your chatbot system</p>
+        <p>Overview of your CIRA system</p>
       </div>
 
       {loading ? (

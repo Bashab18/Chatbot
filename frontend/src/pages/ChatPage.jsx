@@ -59,7 +59,7 @@ export default function ChatPage() {
   const [editTitle, setEditTitle]         = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [ttsSettings, setTtsSettings]    = useState(TTS_DEFAULTS);
-  const [instanceName, setInstanceName]  = useState("Chatbot");
+  const [instanceName, setInstanceName]  = useState("CIRA");
   const [botSettings, setBotSettings]    = useState({ model: null, style: null });
   const [showScrollBtn, setShowScrollBtn]= useState(false);
 

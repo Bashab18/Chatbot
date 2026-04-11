@@ -55,7 +55,7 @@ const NAV = [
 export default function AdminLayout() {
   const { user, logout, getToken } = useAuth();
   const [sidebarOpen, setSidebarOpen]   = useState(true);
-  const [instanceName, setInstanceName] = useState("Admin");
+  const [instanceName, setInstanceName] = useState("CIRA");
 
   useEffect(() => {
     fetch("/api/instance", { headers: { Authorization: `Bearer ${getToken()}` } })

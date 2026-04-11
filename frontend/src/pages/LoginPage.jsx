@@ -42,7 +42,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="auth-logo">
           <span className="auth-logo-symbol">✦</span>
-          <span className="auth-logo-text">Chatbot</span>
+          <span className="auth-logo-text">CIRA</span>
         </div>
 
         <h1 className="auth-title">

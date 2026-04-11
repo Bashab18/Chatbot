@@ -339,7 +339,7 @@ export default function SettingsPage() {
         </Card>
 
         {/* ── Persona ─────────────────────────────────────── */}
-        <Card title="Chatbot Persona"
+        <Card title="CIRA Persona"
           desc="Personality, tone, and domain instructions. The KB-only constraint is always enforced automatically.">
           <textarea className="persona-textarea" rows={5} value={s.systemPrompt}
             onChange={(e) => set("systemPrompt", e.target.value)}
