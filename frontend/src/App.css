@@ -1633,6 +1633,42 @@ body {
 .tts-field-label { font-size: 12px; font-weight: 500; color: var(--subtext); }
 .tts-error  { font-size: 12px; color: var(--red); margin: 0; }
 
+.tts-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+.tts-test-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--subtext);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.tts-test-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.tts-test-btn.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+.tts-test-btn:disabled { opacity: .5; cursor: not-allowed; }
+.tts-test-spinner {
+  width: 10px; height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+.tts-test-error { font-size: 12px; color: var(--red); }
+
 .settings-select {
   width: 100%;
   background: var(--bg);

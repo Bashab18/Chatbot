@@ -439,7 +439,7 @@ app.get("/api/tts/voices", async (req, res) => {
   try {
     const r    = await fetch(`${XI_BASE}/voices`, { headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY } });
     const data = await r.json();
-    res.json({ voices: (data.voices || []).map((v) => ({ voice_id: v.voice_id, name: v.name, category: v.category })) });
+    res.json({ voices: (data.voices || []).map((v) => ({ voice_id: v.voice_id, name: v.name, category: v.category, labels: v.labels || {} })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

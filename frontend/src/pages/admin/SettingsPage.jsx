@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../../context/AuthContext";
 
 const MODEL_GROUPS = [
@@ -80,9 +80,12 @@ function SliderRow({ label, hint, min, max, step, value, onChange, format }) {
 }
 
 function TTSSection({ s, set }) {
-  const [voices, setVoices]           = useState([]);
-  const [loadingVoices, setLoading]   = useState(false);
-  const [voiceError, setVoiceError]   = useState("");
+  const [voices, setVoices]         = useState([]);
+  const [loadingVoices, setLoading] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const [testState, setTestState]   = useState("idle"); // "idle" | "loading" | "playing"
+  const [testError, setTestError]   = useState("");
+  const testAudioRef                = useRef(null);
   const { getToken } = useAuth();
 
   useEffect(() => {
@@ -94,6 +97,50 @@ function TTSSection({ s, set }) {
       .catch((e) => setVoiceError(e.message))
       .finally(() => setLoading(false));
   }, [s.ttsEnabled]);
+
+  async function handleTest() {
+    // If audio is playing, stop it
+    if (testAudioRef.current) {
+      testAudioRef.current.pause();
+      testAudioRef.current = null;
+      setTestState("idle");
+      return;
+    }
+    if (testState === "loading") return;
+    setTestState("loading");
+    setTestError("");
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "Hello! This is a voice preview. How does this sound to you?",
+          voiceId:        s.ttsVoiceId,
+          modelId:        s.ttsModelId,
+          stability:      s.ttsStability,
+          similarityBoost:s.ttsSimilarity,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `TTS error ${res.status}`);
+      }
+      const blob  = await res.blob();
+      const url   = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      testAudioRef.current = audio;
+      setTestState("playing");
+      audio.play();
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        testAudioRef.current = null;
+        setTestState("idle");
+      };
+    } catch (err) {
+      setTestError(err.message);
+      setTestState("idle");
+    }
+  }
 
   return (
     <div className="tts-section">
@@ -153,6 +200,36 @@ function TTSSection({ s, set }) {
             value={s.ttsSimilarity} onChange={(v) => set("ttsSimilarity", v)}
             format={(v) => v.toFixed(2)}
             hint="How closely the AI matches the original voice." />
+
+          {/* Test Voice */}
+          <div className="tts-test-row">
+            <button
+              type="button"
+              className={`tts-test-btn${testState !== "idle" ? " active" : ""}`}
+              onClick={handleTest}
+              disabled={testState === "loading"}
+            >
+              {testState === "loading" ? (
+                <><span className="tts-test-spinner" />Loading…</>
+              ) : testState === "playing" ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="3" y="3" width="4" height="10" rx="1"/>
+                    <rect x="9" y="3" width="4" height="10" rx="1"/>
+                  </svg>
+                  Stop
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M10.804 8 5 4.633v6.734L10.804 8zm.792-.696a.802.802 0 0 1 0 1.392l-6.363 3.692C4.713 12.69 4 12.345 4 11.692V4.308c0-.653.713-.998 1.233-.696l6.363 3.692z"/>
+                  </svg>
+                  Test Voice
+                </>
+              )}
+            </button>
+            {testError && <span className="tts-test-error">⚠ {testError}</span>}
+          </div>
         </div>
       )}
     </div>
