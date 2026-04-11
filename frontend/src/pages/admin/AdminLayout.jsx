@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
@@ -53,8 +53,16 @@ const NAV = [
 ];
 
 export default function AdminLayout() {
-  const { user, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { user, logout, getToken } = useAuth();
+  const [sidebarOpen, setSidebarOpen]   = useState(true);
+  const [instanceName, setInstanceName] = useState("Admin");
+
+  useEffect(() => {
+    fetch("/api/instance", { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then((r) => r.json())
+      .then((d) => { if (d.name) setInstanceName(d.name); })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="admin-app" data-theme="dark">
@@ -63,7 +71,7 @@ export default function AdminLayout() {
         <div className="admin-sidebar-header">
           <div className="sidebar-brand">
             <span className="brand-symbol">✦</span>
-            {sidebarOpen && <span className="brand-name">Admin</span>}
+            {sidebarOpen && <span className="brand-name">{instanceName}</span>}
           </div>
           <button
             className="icon-btn"

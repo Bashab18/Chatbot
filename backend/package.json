@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "start:instances": "node start-instances.js",
+    "dev:instances": "nodemon --watch ../instances.json start-instances.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

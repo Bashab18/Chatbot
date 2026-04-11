@@ -18,6 +18,7 @@ export default function ChatPage() {
   const [editTitle, setEditTitle]         = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [ttsSettings, setTtsSettings]    = useState(TTS_DEFAULTS);
+  const [instanceName, setInstanceName]  = useState("Chatbot");
 
   const audioRef    = useRef(null);
   const bottomRef   = useRef(null);
@@ -35,7 +36,7 @@ export default function ChatPage() {
     return data;
   }, [getToken]);
 
-  // ── Fetch global settings (theme + TTS) ──────────────────────────────
+  // ── Fetch global settings (theme + TTS) and instance name ────────────
   useEffect(() => {
     apiFetch("/api/settings")
       .then((data) => {
@@ -48,6 +49,9 @@ export default function ChatPage() {
           ttsSimilarity:data.ttsSimilarity ?? TTS_DEFAULTS.ttsSimilarity,
         });
       })
+      .catch(() => {});
+    apiFetch("/api/instance")
+      .then((d) => { if (d.name) setInstanceName(d.name); })
       .catch(() => {});
   }, [apiFetch]);
 
@@ -251,7 +255,7 @@ export default function ChatPage() {
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <span className="brand-symbol">✦</span>
-            <span className="brand-name">Chatbot</span>
+            <span className="brand-name">{instanceName}</span>
           </div>
           <button className="icon-btn" onClick={() => setSidebarOpen(false)} title="Close sidebar">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">

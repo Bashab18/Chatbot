@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Chatbot A",
+    "port": 5000,
+    "dataDir": "data/chatbot-a"
+  },
+  {
+    "name": "Chatbot B",
+    "port": 5001,
+    "dataDir": "data/chatbot-b"
+  }
+]

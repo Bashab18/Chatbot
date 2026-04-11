@@ -466,5 +466,20 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", docs: store.documents.length, chunks: store.chunks.length });
 });
 
+// ── Instance info (name shown in admin UI) ────────────────────────────
+app.get("/api/instance", (req, res) => {
+  res.json({ name: process.env.INSTANCE_NAME || "Chatbot" });
+});
+
+// ── Serve frontend build (self-contained mode) ────────────────────────
+const FRONTEND_BUILD = path.join(__dirname, "../frontend/build");
+if (fs.existsSync(FRONTEND_BUILD)) {
+  app.use(express.static(FRONTEND_BUILD));
+  app.get("*", (_req, res) => res.sendFile(path.join(FRONTEND_BUILD, "index.html")));
+}
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Backend running on http://localhost:${PORT}`));
+const INSTANCE_NAME = process.env.INSTANCE_NAME || "Chatbot";
+app.listen(PORT, () =>
+  console.log(`[${INSTANCE_NAME}] running on http://localhost:${PORT}`)
+);
