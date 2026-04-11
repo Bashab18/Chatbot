@@ -313,8 +313,15 @@ app.put("/api/admin/settings", requireAdmin, (req, res) => {
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
-  setBotSettings(updates);
-  res.json({ message: "Settings saved" });
+  try {
+    setBotSettings(updates);
+    const saved = getBotSettings();
+    console.log("[settings] saved:", JSON.stringify(saved));
+    res.json({ message: "Settings saved", settings: saved });
+  } catch (err) {
+    console.error("[settings] save error:", err.message);
+    res.status(500).json({ error: "Failed to save settings: " + err.message });
+  }
 });
 
 app.get("/api/admin/users", requireAdmin, (req, res) => {

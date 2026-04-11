@@ -186,12 +186,15 @@ export default function SettingsPage() {
     setSaving(true); setMessage(null);
     try {
       const token = getToken();
-      const res = await fetch("/api/admin/settings", {
+      const res  = await fetch("/api/admin/settings", {
         method:  "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body:    JSON.stringify(s),
       });
-      if (!res.ok) throw new Error("Save failed");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Save failed");
+      // Sync state from what the server actually persisted
+      if (json.settings) setS({ ...DEFAULTS, ...json.settings });
       setMessage({ type: "success", text: "Settings saved." });
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
