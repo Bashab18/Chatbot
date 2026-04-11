@@ -4,6 +4,23 @@ const AuthContext = createContext(null);
 
 const TOKEN_KEY = "chatbot_token";
 
+// Safely parse JSON; throws a clean error if server is down / returning HTML
+async function parseJSON(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Server returned non-JSON (HTML error page, 502, sleeping service, etc.)
+    throw new Error(
+      res.status >= 500
+        ? "Server error — please try again in a moment"
+        : res.status === 0 || text === ""
+        ? "Could not reach the server"
+        : "Unexpected server response — please try again"
+    );
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser]     = useState(null);   // { id, email, name, role }
   const [loading, setLoading] = useState(true);
@@ -25,7 +42,7 @@ export function AuthProvider({ children }) {
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ email, password, name, role }),
     });
-    const data = await res.json();
+    const data = await parseJSON(res);
     if (!res.ok) throw new Error(data.error);
     localStorage.setItem(TOKEN_KEY, data.token);
     setUser(data.user);
@@ -38,7 +55,7 @@ export function AuthProvider({ children }) {
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ email, password }),
     });
-    const data = await res.json();
+    const data = await parseJSON(res);
     if (!res.ok) throw new Error(data.error);
     localStorage.setItem(TOKEN_KEY, data.token);
     setUser(data.user);
