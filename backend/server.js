@@ -37,21 +37,25 @@ function uid() { return crypto.randomUUID(); }
 // ── Bot settings helpers ──────────────────────────────────────────────
 const DEFAULT_BOT = {
   // AI
-  model:          "gemini-1.5-flash",
-  systemPrompt:   "You are a helpful assistant.",
-  style:          "balanced",   // precise | balanced | creative
+  model:              "gemini-1.5-flash",
+  systemPrompt:       "You are a helpful assistant.",
+  style:              "balanced",   // precise | balanced | creative
   // RAG
-  ragTopK:        5,
-  ragMinScore:    0,
-  refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
+  ragTopK:            5,
+  ragMinScore:        0,
+  refusalMessage:     "I'm sorry, I don't have information about that in my knowledge base.",
+  // Knowledge source weights (0-100, independent)
+  ragWeight:          100,   // use knowledge base documents
+  ownKnowledgeWeight: 0,     // allow AI own training knowledge
+  webSearchWeight:    0,     // enable live web search (Google Search grounding)
   // Appearance
-  theme:          "dark",
+  theme:              "dark",
   // TTS (ElevenLabs)
-  ttsEnabled:     true,
-  ttsVoiceId:     "21m00Tcm4TlvDq8ikWAM",
-  ttsModelId:     "eleven_turbo_v2_5",
-  ttsStability:   0.5,
-  ttsSimilarity:  0.75,
+  ttsEnabled:         true,
+  ttsVoiceId:         "21m00Tcm4TlvDq8ikWAM",
+  ttsModelId:         "eleven_turbo_v2_5",
+  ttsStability:       0.5,
+  ttsSimilarity:      0.75,
 };
 
 function getBotSettings() {
@@ -164,14 +168,221 @@ app.get("/api/conversations/:id/messages", requireAuth, (req, res) => {
     .get(req.params.id, req.user.uid);
   if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
-  const msgs = db.prepare(
-    "SELECT id, role, text, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC"
+  const rows = db.prepare(
+    "SELECT id, role, text, timestamp, refs FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC"
   ).all(req.params.id);
+  const msgs = rows.map((m) => ({ ...m, refs: m.refs ? JSON.parse(m.refs) : [] }));
   res.json({ messages: msgs });
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// CHAT (KB-only AI)
+// USER PROFILE
+// ══════════════════════════════════════════════════════════════════════
+
+function getUserProfile(uid) {
+  const row = db.prepare("SELECT profile FROM users WHERE id = ?").get(uid);
+  try { return JSON.parse(row?.profile || "{}"); } catch { return {}; }
+}
+
+function setUserProfile(userId, profile) {
+  db.prepare("UPDATE users SET profile = ? WHERE id = ?").run(JSON.stringify(profile), userId);
+}
+
+app.get("/api/user/profile", requireAuth, (req, res) => {
+  const profile = getUserProfile(req.user.uid);
+  const { googleFitTokens: _tokens, ...safe } = profile;
+  res.json({ profile: safe });
+});
+
+app.put("/api/user/profile", requireAuth, (req, res) => {
+  const ALLOWED = ["age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies"];
+  const profile = getUserProfile(req.user.uid);
+  for (const k of ALLOWED) {
+    if (req.body[k] !== undefined) {
+      const v = String(req.body[k]).trim();
+      if (v) profile[k] = v; else delete profile[k];
+    }
+  }
+  setUserProfile(req.user.uid, profile);
+  const { googleFitTokens: _tokens, ...safe } = profile;
+  res.json({ profile: safe });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// GOOGLE FIT INTEGRATION
+// ══════════════════════════════════════════════════════════════════════
+
+const GOOGLE_AUTH_URL   = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL  = "https://oauth2.googleapis.com/token";
+const FITNESS_API_URL   = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate";
+const FITNESS_SCOPES    = [
+  "https://www.googleapis.com/auth/fitness.activity.read",
+  "https://www.googleapis.com/auth/fitness.body.read",
+  "https://www.googleapis.com/auth/fitness.heart_rate.bpm.read",
+].join(" ");
+
+async function refreshFitnessToken(tokens) {
+  const params = new URLSearchParams({
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    refresh_token: tokens.refresh_token,
+    grant_type:    "refresh_token",
+  });
+  const r    = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
+  const data = await r.json();
+  if (data.error) throw new Error(`Token refresh: ${data.error_description || data.error}`);
+  return { ...tokens, access_token: data.access_token, expires_at: Date.now() + data.expires_in * 1000 };
+}
+
+async function getValidFitnessToken(tokens) {
+  if (tokens.expires_at && Date.now() < tokens.expires_at - 60_000) return tokens;
+  return refreshFitnessToken(tokens);
+}
+
+async function fetchFitnessData(accessToken) {
+  const now         = Date.now();
+  const sevenDaysAgo = now - 7 * 86_400_000;
+  const startOfDay  = new Date(); startOfDay.setHours(0, 0, 0, 0);
+
+  const body = {
+    aggregateBy: [
+      { dataTypeName: "com.google.step_count.delta" },
+      { dataTypeName: "com.google.heart_rate.bpm" },
+      { dataTypeName: "com.google.weight" },
+    ],
+    bucketByTime: { durationMillis: 86_400_000 },
+    startTimeMillis: sevenDaysAgo,
+    endTimeMillis: now,
+  };
+
+  const r = await fetch(FITNESS_API_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body:   JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e?.error?.message || `Fitness API ${r.status}`);
+  }
+
+  const data = await r.json();
+  let todaySteps = 0; const heartRates = []; let weight = null;
+
+  for (const bucket of (data.bucket || [])) {
+    const bucketStart = parseInt(bucket.startTimeMillis, 10);
+    const isToday     = bucketStart >= startOfDay.getTime();
+    for (const dataset of (bucket.dataset || [])) {
+      for (const point of (dataset.point || [])) {
+        const id = dataset.dataSourceId || "";
+        if (id.includes("step_count") && isToday)  todaySteps += (point.value?.[0]?.intVal || 0);
+        if (id.includes("heart_rate"))              { const hr = point.value?.[0]?.fpVal; if (hr) heartRates.push(hr); }
+        if (id.includes("weight"))                  { const w  = point.value?.[0]?.fpVal; if (w)  weight = w; }
+      }
+    }
+  }
+
+  const avgHeartRate = heartRates.length ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length) : null;
+  return { todaySteps, avgHeartRate, weight: weight ? parseFloat(weight.toFixed(1)) : null };
+}
+
+// ── Fitness routes ────────────────────────────────────────────────────
+
+app.get("/api/fitness/auth-url", requireAuth, (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_REDIRECT_URI) {
+    return res.status(503).json({ error: "Google Fit not configured (set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)" });
+  }
+  const params = new URLSearchParams({
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    redirect_uri:  process.env.GOOGLE_REDIRECT_URI,
+    response_type: "code",
+    scope:         FITNESS_SCOPES,
+    access_type:   "offline",
+    prompt:        "consent",
+    state:         Buffer.from(req.user.uid).toString("base64"),
+  });
+  res.json({ url: `${GOOGLE_AUTH_URL}?${params}` });
+});
+
+app.get("/api/fitness/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+
+  if (error) return res.redirect(`${frontendUrl}/profile?fit_error=${encodeURIComponent(error)}`);
+  if (!code || !state) return res.redirect(`${frontendUrl}/profile?fit_error=missing_code`);
+
+  let userId;
+  try { userId = Buffer.from(state, "base64").toString("utf8"); } catch {
+    return res.redirect(`${frontendUrl}/profile?fit_error=invalid_state`);
+  }
+
+  try {
+    const params = new URLSearchParams({
+      client_id:     process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri:  process.env.GOOGLE_REDIRECT_URI,
+      code,
+      grant_type:    "authorization_code",
+    });
+    const tokenRes  = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) throw new Error(tokenData.error_description || tokenData.error);
+
+    const tokens = {
+      access_token:  tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_at:    Date.now() + tokenData.expires_in * 1000,
+    };
+
+    const profile = getUserProfile(userId);
+    profile.googleFitTokens = tokens;
+    try {
+      profile.fitnessSnapshot  = await fetchFitnessData(tokens.access_token);
+      profile.fitnessFetchedAt = Date.now();
+    } catch (e) { console.warn("Initial fitness fetch failed:", e.message); }
+
+    setUserProfile(userId, profile);
+    res.redirect(`${frontendUrl}/profile?fit_connected=1`);
+  } catch (err) {
+    console.error("Fitness callback error:", err.message);
+    res.redirect(`${frontendUrl}/profile?fit_error=${encodeURIComponent(err.message)}`);
+  }
+});
+
+app.get("/api/fitness/status", requireAuth, (req, res) => {
+  const profile    = getUserProfile(req.user.uid);
+  const connected  = !!(profile.googleFitTokens?.refresh_token);
+  res.json({ connected, snapshot: profile.fitnessSnapshot || null, fetchedAt: profile.fitnessFetchedAt || null });
+});
+
+app.post("/api/fitness/refresh", requireAuth, async (req, res) => {
+  const profile = getUserProfile(req.user.uid);
+  if (!profile.googleFitTokens?.refresh_token) return res.status(400).json({ error: "Google Fit not connected" });
+  try {
+    const tokens  = await getValidFitnessToken(profile.googleFitTokens);
+    const fresh   = await refreshFitnessToken(tokens);
+    const fitData = await fetchFitnessData(fresh.access_token);
+    profile.googleFitTokens  = fresh;
+    profile.fitnessSnapshot  = fitData;
+    profile.fitnessFetchedAt = Date.now();
+    setUserProfile(req.user.uid, profile);
+    res.json({ snapshot: fitData, fetchedAt: profile.fitnessFetchedAt });
+  } catch (err) {
+    console.error("Fitness refresh error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/fitness/disconnect", requireAuth, (req, res) => {
+  const profile = getUserProfile(req.user.uid);
+  delete profile.googleFitTokens;
+  delete profile.fitnessSnapshot;
+  delete profile.fitnessFetchedAt;
+  setUserProfile(req.user.uid, profile);
+  res.json({ message: "Disconnected" });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// CHAT
 // ══════════════════════════════════════════════════════════════════════
 
 app.post("/api/chat", requireAuth, async (req, res) => {
@@ -190,63 +401,119 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     .run(userMsgId, conversationId, "user", message, now);
   db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
 
-  const { model, systemPrompt, style, ragTopK, ragMinScore, refusalMessage } = getBotSettings();
-  const STYLE_TEMP = { precise: 0.2, balanced: 0.7, creative: 1.2 };
+  const { model, systemPrompt, style, ragTopK, ragMinScore, refusalMessage,
+          ragWeight, ownKnowledgeWeight, webSearchWeight } = getBotSettings();
+  const STYLE_TEMP  = { precise: 0.2, balanced: 0.7, creative: 1.2 };
   const temperature = STYLE_TEMP[style] ?? 0.7;
 
-  // KB retrieval
-  if (store.chunks.length === 0) {
-    const reply = "The knowledge base is empty. Please ask your administrator to upload documents.";
-    const botMsgId = uid();
-    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
-      .run(botMsgId, conversationId, "assistant", reply, Date.now());
-    return res.json({ userMsgId, botMsgId, reply });
+  const useRAG         = ragWeight > 0;
+  const useOwnKnow     = ownKnowledgeWeight > 0;
+  const useWebSearch   = webSearchWeight > 0;
+  const strictKBOnly   = useRAG && !useOwnKnow && !useWebSearch;
+
+  // ── User profile context ──────────────────────────────────────────
+  const userProfile = getUserProfile(req.user.uid);
+  const profileLines = [
+    userProfile.age        && `Age: ${userProfile.age}`,
+    userProfile.gender     && `Gender: ${userProfile.gender}`,
+    userProfile.height     && `Height: ${userProfile.height}`,
+    userProfile.weight     && `Weight: ${userProfile.weight}`,
+    userProfile.conditions && `Medical conditions: ${userProfile.conditions}`,
+    userProfile.medications && `Current medications: ${userProfile.medications}`,
+    userProfile.goals      && `Health goals: ${userProfile.goals}`,
+    userProfile.allergies  && `Allergies: ${userProfile.allergies}`,
+  ].filter(Boolean);
+
+  let profileSection = "";
+  if (profileLines.length > 0) profileSection += `\n\nUser Profile:\n${profileLines.map((l) => `- ${l}`).join("\n")}`;
+  if (userProfile.fitnessSnapshot) {
+    const { todaySteps, avgHeartRate, weight } = userProfile.fitnessSnapshot;
+    const fitLines = [
+      todaySteps   && `Steps today: ${todaySteps.toLocaleString()}`,
+      avgHeartRate && `Avg heart rate (7 d): ${avgHeartRate} bpm`,
+      weight       && `Weight: ${weight} kg`,
+    ].filter(Boolean);
+    if (fitLines.length > 0) profileSection += `\n\nRecent Fitness Data (Google Fit):\n${fitLines.map((l) => `- ${l}`).join("\n")}`;
   }
 
-  const queryTokens = tokenize(message);
-  const hits = search(store, queryTokens, ragTopK, ragMinScore);
-  if (hits.length === 0) {
-    const reply = refusalMessage;
-    const botMsgId = uid();
-    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
-      .run(botMsgId, conversationId, "assistant", reply, Date.now());
-    return res.json({ userMsgId, botMsgId, reply });
+  // ── KB retrieval ──────────────────────────────────────────────────
+  let hits = [], refs = [];
+
+  if (useRAG && store.chunks.length > 0) {
+    const queryTokens = tokenize(message);
+    hits = search(store, queryTokens, ragTopK, ragMinScore);
+    refs = hits.map((h) => ({ name: h.docName, text: h.text.slice(0, 300) }));
   }
-  const contextText = hits.map((h) => `[Source: ${h.docName}]\n${h.text}`).join("\n\n---\n\n");
 
-  const fullSystem =
-    `${systemPrompt}\n\n` +
-    `IMPORTANT: Only answer from the context below. If the question is not covered respond exactly: "${refusalMessage}"\n\n` +
-    `<context>\n${contextText}\n</context>`;
+  // ── Early exits (strict KB-only with no results) ──────────────────
+  if (strictKBOnly && store.chunks.length === 0) {
+    const reply    = "The knowledge base is empty. Please ask your administrator to upload documents.";
+    const botMsgId = uid();
+    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)").run(botMsgId, conversationId, "assistant", reply, Date.now());
+    return res.json({ userMsgId, botMsgId, reply, refs: [] });
+  }
+  if (strictKBOnly && hits.length === 0) {
+    const reply    = refusalMessage;
+    const botMsgId = uid();
+    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)").run(botMsgId, conversationId, "assistant", reply, Date.now());
+    return res.json({ userMsgId, botMsgId, reply, refs: [] });
+  }
 
+  // ── Build system prompt ───────────────────────────────────────────
+  let fullSystem = systemPrompt + profileSection;
+
+  if (hits.length > 0) {
+    const contextText = hits.map((h) => `[Source: ${h.docName}]\n${h.text}`).join("\n\n---\n\n");
+    if (strictKBOnly) {
+      fullSystem += `\n\nIMPORTANT: Only answer from the context below. If the question is not covered respond exactly: "${refusalMessage}"\n\n<context>\n${contextText}\n</context>`;
+    } else {
+      fullSystem += `\n\nUse the following knowledge base context when relevant:\n\n<context>\n${contextText}\n</context>`;
+    }
+  }
+
+  // ── Call Gemini ───────────────────────────────────────────────────
   try {
     const geminiHistory = history.slice(-10).map((m) => ({
       role:  m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.text }],
     }));
-    const geminiModel = genAI.getGenerativeModel({
+    const modelConfig = {
       model,
       systemInstruction: fullSystem,
       generationConfig:  { temperature },
-    });
-    const chat   = geminiModel.startChat({ history: geminiHistory });
-    const result = await chat.sendMessage(message);
-    const reply  = result.response.text();
+    };
+    if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
+
+    const geminiModel = genAI.getGenerativeModel(modelConfig);
+    const chat        = geminiModel.startChat({ history: geminiHistory });
+    const result      = await chat.sendMessage(message);
+    const reply       = result.response.text();
+
+    // Extract web grounding sources (if web search enabled)
+    if (useWebSearch) {
+      const candidates = result.response.candidates || [];
+      const gm         = candidates[0]?.groundingMetadata;
+      if (gm?.groundingChunks) {
+        for (const chunk of gm.groundingChunks) {
+          if (chunk.web?.uri) refs.push({ name: chunk.web.title || chunk.web.uri, text: chunk.web.uri, type: "web" });
+        }
+      }
+    }
 
     const botMsgId = uid();
-    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
-      .run(botMsgId, conversationId, "assistant", reply, Date.now());
+    const refsJson = refs.length > 0 ? JSON.stringify(refs) : null;
+    db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp, refs) VALUES (?,?,?,?,?,?)")
+      .run(botMsgId, conversationId, "assistant", reply, Date.now(), refsJson);
     db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(Date.now(), conversationId);
 
-    res.json({ userMsgId, botMsgId, reply });
+    res.json({ userMsgId, botMsgId, reply, refs });
   } catch (err) {
     console.error("Gemini error:", err.message);
-    // Still save an error message
     const errMsg   = `⚠️ ${err.message}`;
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
       .run(botMsgId, conversationId, "assistant", errMsg, Date.now());
-    res.json({ userMsgId, botMsgId, reply: errMsg });
+    res.json({ userMsgId, botMsgId, reply: errMsg, refs: [] });
   }
 });
 
@@ -300,8 +567,10 @@ app.get("/api/admin/recent-chats", requireAdmin, (req, res) => {
 
 // Public read-only settings used by the chat UI (theme, TTS defaults, etc.)
 app.get("/api/settings", requireAuth, (req, res) => {
-  const { model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity } = getBotSettings();
-  res.json({ model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity });
+  const { model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity,
+          ragWeight, ownKnowledgeWeight, webSearchWeight } = getBotSettings();
+  res.json({ model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity,
+             ragWeight, ownKnowledgeWeight, webSearchWeight });
 });
 
 app.get("/api/admin/settings", requireAdmin, (req, res) => {
@@ -317,7 +586,7 @@ app.put("/api/admin/settings", requireAdmin, (req, res) => {
     if (b[k] !== undefined) updates[k] = String(b[k]);
   }
   // Numeric fields
-  for (const k of ["ragTopK", "ragMinScore", "ttsStability", "ttsSimilarity"]) {
+  for (const k of ["ragTopK", "ragMinScore", "ttsStability", "ttsSimilarity", "ragWeight", "ownKnowledgeWeight", "webSearchWeight"]) {
     if (b[k] !== undefined) {
       const n = parseFloat(b[k]);
       if (!isNaN(n)) updates[k] = n;
@@ -363,9 +632,10 @@ app.get("/api/admin/conversations", requireAdmin, (req, res) => {
 });
 
 app.get("/api/admin/conversations/:id/messages", requireAdmin, (req, res) => {
-  const msgs = db.prepare(
-    "SELECT id, role, text, timestamp FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC"
+  const rows = db.prepare(
+    "SELECT id, role, text, timestamp, refs FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC"
   ).all(req.params.id);
+  const msgs = rows.map((m) => ({ ...m, refs: m.refs ? JSON.parse(m.refs) : [] }));
   res.json({ messages: msgs });
 });
 

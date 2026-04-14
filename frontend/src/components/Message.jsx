@@ -36,7 +36,7 @@ function CopyCodeBtn({ code }) {
   );
 }
 
-export default function Message({ role, text, msgId, timestamp, userInitials, onSpeak, isSpeaking }) {
+export default function Message({ role, text, msgId, timestamp, userInitials, onSpeak, isSpeaking, refs }) {
   const [copied, setCopied] = useState(false);
 
   function copyText() {
@@ -92,6 +92,32 @@ export default function Message({ role, text, msgId, timestamp, userInitials, on
             <p>{text}</p>
           )}
         </div>
+
+        {/* Sources / references */}
+        {role === "assistant" && refs && refs.length > 0 && (
+          <details className="msg-refs">
+            <summary className="msg-refs-toggle">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zm8 0A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zm-8 8A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zm8 0A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3z"/>
+              </svg>
+              Sources ({refs.length})
+            </summary>
+            <div className="msg-refs-list">
+              {refs.map((r, i) => (
+                <div key={i} className={`msg-ref-item${r.type === "web" ? " web" : ""}`}>
+                  <span className="msg-ref-name">
+                    {r.type === "web" ? (
+                      <a href={r.text} target="_blank" rel="noopener noreferrer">{r.name}</a>
+                    ) : r.name}
+                  </span>
+                  {r.type !== "web" && r.text && (
+                    <p className="msg-ref-excerpt">{r.text}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {/* Footer: actions + timestamp */}
         <div className="msg-footer">

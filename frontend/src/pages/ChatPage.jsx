@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Message from "../components/Message";
 
@@ -47,6 +48,7 @@ const SUGGESTIONS = [
 
 export default function ChatPage() {
   const { user, logout, getToken } = useAuth();
+  const navigate = useNavigate();
 
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId]           = useState(null);
@@ -119,7 +121,7 @@ export default function ChatPage() {
     setMessages([]);
     if (!activeId) return;
     apiFetch(`/api/conversations/${activeId}/messages`)
-      .then((d) => setMessages(d.messages))
+      .then((d) => setMessages(d.messages.map((m) => ({ ...m, refs: m.refs || [] }))))
       .catch(() => {});
   }, [activeId]);
 
@@ -196,8 +198,8 @@ export default function ChatPage() {
       });
       setMessages((p) => [
         ...p.filter((m) => m.id !== tempId),
-        { id: data.userMsgId, role: "user", text, timestamp: Date.now() },
-        { id: data.botMsgId, role: "assistant", text: data.reply, timestamp: Date.now() },
+        { id: data.userMsgId, role: "user", text, timestamp: Date.now(), refs: [] },
+        { id: data.botMsgId, role: "assistant", text: data.reply, timestamp: Date.now(), refs: data.refs || [] },
       ]);
       setConversations((p) =>
         p.map((c) => (c.id === activeId ? { ...c, updated_at: Date.now() } : c))
@@ -385,9 +387,13 @@ export default function ChatPage() {
         {/* User footer */}
         <div className="sidebar-bottom">
           <div className="sidebar-user-row">
-            <div className="user-avatar">{userInitials}</div>
+            <button className="user-avatar sidebar-avatar-btn" onClick={() => navigate("/profile")} title="My Profile">
+              {userInitials}
+            </button>
             <div className="user-info">
-              <span className="user-name">{user?.name ?? user?.email}</span>
+              <button className="user-name-link" onClick={() => navigate("/profile")} title="My Profile">
+                {user?.name ?? user?.email}
+              </button>
               <span className="user-email">{user?.email}</span>
             </div>
             <button className="icon-btn" onClick={logout} title="Sign out">
@@ -467,6 +473,7 @@ export default function ChatPage() {
                 userInitials={userInitials}
                 onSpeak={ttsSettings.ttsEnabled ? handleSpeak : null}
                 isSpeaking={speakingId === msg.id}
+                refs={msg.refs || []}
               />
             ))
           )}

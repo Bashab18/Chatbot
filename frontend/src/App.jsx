@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage     from "./pages/LoginPage";
 import ChatPage      from "./pages/ChatPage";
+import ProfilePage   from "./pages/ProfilePage";
 import AdminLayout   from "./pages/admin/AdminLayout";
 import DashboardPage from "./pages/admin/DashboardPage";
 import KnowledgePage from "./pages/admin/KnowledgePage";
@@ -55,6 +56,16 @@ export default function App() {
             element={
               <ProtectedRoute requireRole="user">
                 <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* User profile */}
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute requireRole="user">
+                <ProfilePage />
               </ProtectedRoute>
             }
           />

@@ -40,18 +40,21 @@ const TTS_MODELS = [
 ];
 
 const DEFAULTS = {
-  model:          "gemini-1.5-flash",
-  systemPrompt:   "",
-  style:          "balanced",
-  ragTopK:        5,
-  ragMinScore:    0,
-  refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
-  theme:          "dark",
-  ttsEnabled:     true,
-  ttsVoiceId:     "21m00Tcm4TlvDq8ikWAM",
-  ttsModelId:     "eleven_turbo_v2_5",
-  ttsStability:   0.5,
-  ttsSimilarity:  0.75,
+  model:              "gemini-1.5-flash",
+  systemPrompt:       "",
+  style:              "balanced",
+  ragTopK:            5,
+  ragMinScore:        0,
+  refusalMessage:     "I'm sorry, I don't have information about that in my knowledge base.",
+  ragWeight:          100,
+  ownKnowledgeWeight: 0,
+  webSearchWeight:    0,
+  theme:              "dark",
+  ttsEnabled:         true,
+  ttsVoiceId:         "21m00Tcm4TlvDq8ikWAM",
+  ttsModelId:         "eleven_turbo_v2_5",
+  ttsStability:       0.5,
+  ttsSimilarity:      0.75,
 };
 
 function Card({ title, desc, children }) {
@@ -356,6 +359,25 @@ export default function SettingsPage() {
               value={s.ragMinScore} onChange={(v) => set("ragMinScore", v)}
               format={(v) => v.toFixed(2)}
               hint="Chunks below this similarity score are ignored. Higher = stricter." />
+          </div>
+        </Card>
+
+        {/* ── Knowledge Sources ───────────────────────────── */}
+        <Card title="Knowledge Sources"
+          desc="Control which sources the bot draws on when answering. Each slider is independent — set to 0 to disable that source.">
+          <div className="sliders-group">
+            <SliderRow label="Knowledge Base" min={0} max={100} step={5}
+              value={s.ragWeight ?? 100} onChange={(v) => set("ragWeight", v)}
+              format={(v) => `${v}%`}
+              hint="Use indexed documents from the knowledge base. Disable to skip KB lookup entirely." />
+            <SliderRow label="AI Own Knowledge" min={0} max={100} step={5}
+              value={s.ownKnowledgeWeight ?? 0} onChange={(v) => set("ownKnowledgeWeight", v)}
+              format={(v) => `${v}%`}
+              hint="Allow the AI to draw on its own training data. When disabled with KB-only, non-matching queries get the refusal message." />
+            <SliderRow label="Live Web Search" min={0} max={100} step={5}
+              value={s.webSearchWeight ?? 0} onChange={(v) => set("webSearchWeight", v)}
+              format={(v) => `${v}%`}
+              hint="Enable Google Search grounding for real-time web results. Recommended with Gemini 2.0+ models." />
           </div>
         </Card>
 
