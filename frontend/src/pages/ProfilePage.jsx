@@ -106,8 +106,12 @@ export default function ProfilePage() {
       const data = await apiFetch("/api/fitness/auth-url");
       window.location.href = data.url;
     } catch (err) {
-      if (err.message.includes("not configured")) setFitConfigured(false);
-      setFitMsg({ type: "error", text: err.message });
+      if (err.message.includes("not configured")) {
+        setFitConfigured(false);
+        // Yellow warning box already explains — no red alert needed
+      } else {
+        setFitMsg({ type: "error", text: err.message });
+      }
       setFitLoading(false);
     }
   }
