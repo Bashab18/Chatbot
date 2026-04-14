@@ -40,10 +40,10 @@ function modelLabel(id) {
 }
 
 const SUGGESTIONS = [
-  "What topics can you help with?",
-  "Summarize the key points",
-  "Explain in simple terms",
-  "Give me an overview",
+  "What exercises are safe for seniors?",
+  "How can I improve my balance?",
+  "What stretches help with joint pain?",
+  "How many steps should I walk daily?",
 ];
 
 export default function ChatPage() {
@@ -441,9 +441,9 @@ export default function ChatPage() {
         <div className="chat-messages" onScroll={handleScroll}>
           {!activeId ? (
             <div className="empty-state">
-              <div className="empty-logo">✦</div>
+              <div className="empty-logo">🏃</div>
               <h2>Welcome back, {user?.name?.split(" ")[0] ?? "there"}!</h2>
-              <p>Select a conversation or start a new one.</p>
+              <p>Your personal fitness guide for healthy, active ageing.</p>
               <button className="new-chat-cta" onClick={newConversation}>
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
@@ -453,9 +453,9 @@ export default function ChatPage() {
             </div>
           ) : isEmpty ? (
             <div className="empty-state">
-              <div className="empty-logo">✦</div>
-              <h2>How can I help?</h2>
-              <p>Ask me anything from the knowledge base.</p>
+              <div className="empty-logo">🏃</div>
+              <h2>How can I help you today?</h2>
+              <p>Ask me about exercises, nutrition, balance, or staying active as you age.</p>
               <div className="suggestion-chips">
                 {SUGGESTIONS.map((s) => (
                   <button key={s} className="suggestion-chip" onClick={() => setInput(s)}>{s}</button>
@@ -512,7 +512,7 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={activeId ? "Ask anything…" : "Start a new conversation first"}
+              placeholder={activeId ? "Ask about exercises, nutrition, or wellness…" : "Start a new conversation first"}
               rows={1}
               disabled={loading || !activeId}
             />
@@ -559,7 +559,7 @@ export default function ChatPage() {
               )}
             </button>
           </div>
-          <p className="disclaimer">Answers are based solely on the knowledge base · Shift+Enter for new line</p>
+          <p className="disclaimer">Fitness guidance for older adults · Always consult your doctor before starting a new exercise programme · Shift+Enter for new line</p>
         </div>
       </div>
 

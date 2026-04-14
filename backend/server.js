@@ -38,7 +38,7 @@ function uid() { return crypto.randomUUID(); }
 const DEFAULT_BOT = {
   // AI
   model:              "gemini-1.5-flash",
-  systemPrompt:       "You are a helpful assistant.",
+  systemPrompt:       "You are a friendly and supportive fitness assistant designed specifically for older adults. You provide safe, practical guidance on exercise, physical activity, balance, flexibility, nutrition, and healthy ageing. Always use clear, simple language. Encourage users to stay active while reminding them to consult their doctor or physiotherapist before starting new exercises, especially if they have health conditions.",
   style:              "balanced",   // precise | balanced | creative
   // RAG
   ragTopK:            5,
