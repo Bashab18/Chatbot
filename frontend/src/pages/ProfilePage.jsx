@@ -37,22 +37,31 @@ export default function ProfilePage() {
   const [fitMsg, setFitMsg]             = useState(null);
   const [fitConfigured, setFitConfigured] = useState(true);
 
-  function apiFetch(url, opts = {}) {
-    return fetch(url, {
+  // Safe JSON fetch — reads body as text first so HTML error pages don't blow up
+  async function apiFetch(url, opts = {}) {
+    const r    = await fetch(url, {
       ...opts,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}`, ...opts.headers },
     });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch {
+      throw new Error(
+        r.status >= 500 ? "Server error — please try again in a moment"
+          : "Unexpected server response"
+      );
+    }
+    if (!r.ok) throw new Error(data?.error || `Request failed (${r.status})`);
+    return data;
   }
 
   // ── Load profile ────────────────────────────────────────────────────
   useEffect(() => {
     apiFetch("/api/user/profile")
-      .then((r) => r.json())
       .then((d) => { if (d.profile) setProfile(d.profile); })
       .catch(() => setLoadMsg("Could not load profile."));
 
     apiFetch("/api/fitness/status")
-      .then((r) => r.json())
       .then((d) => {
         setFitConnected(d.connected);
         setFitSnapshot(d.snapshot);
@@ -67,9 +76,7 @@ export default function ProfilePage() {
     const fitErr    = params.get("fit_error");
     if (connected) {
       setFitMsg({ type: "success", text: "Google Fit connected successfully!" });
-      // Re-fetch status
       apiFetch("/api/fitness/status")
-        .then((r) => r.json())
         .then((d) => { setFitConnected(d.connected); setFitSnapshot(d.snapshot); setFitFetchedAt(d.fetchedAt); })
         .catch(() => {});
     }
@@ -81,9 +88,7 @@ export default function ProfilePage() {
     e.preventDefault();
     setSaving(true); setSaveMsg(null);
     try {
-      const r    = await apiFetch("/api/user/profile", { method: "PUT", body: JSON.stringify(profile) });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Save failed");
+      const data = await apiFetch("/api/user/profile", { method: "PUT", body: JSON.stringify(profile) });
       setProfile(data.profile);
       setSaveMsg({ type: "success", text: "Profile saved." });
       setTimeout(() => setSaveMsg(null), 3000);
@@ -98,14 +103,10 @@ export default function ProfilePage() {
   async function handleFitConnect() {
     setFitLoading(true); setFitMsg(null);
     try {
-      const r    = await apiFetch("/api/fitness/auth-url");
-      const data = await r.json();
-      if (!r.ok) {
-        if (r.status === 503) setFitConfigured(false);
-        throw new Error(data.error || "Could not get auth URL");
-      }
+      const data = await apiFetch("/api/fitness/auth-url");
       window.location.href = data.url;
     } catch (err) {
+      if (err.message.includes("not configured")) setFitConfigured(false);
       setFitMsg({ type: "error", text: err.message });
       setFitLoading(false);
     }
@@ -115,9 +116,7 @@ export default function ProfilePage() {
   async function handleFitRefresh() {
     setFitLoading(true); setFitMsg(null);
     try {
-      const r    = await apiFetch("/api/fitness/refresh", { method: "POST" });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Refresh failed");
+      const data = await apiFetch("/api/fitness/refresh", { method: "POST" });
       setFitSnapshot(data.snapshot);
       setFitFetchedAt(data.fetchedAt);
       setFitMsg({ type: "success", text: "Fitness data refreshed." });
