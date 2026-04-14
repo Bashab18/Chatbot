@@ -16,10 +16,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Ensure uploads directory exists before multer tries to write to it
+fs.mkdirSync("uploads", { recursive: true });
 const upload = multer({ dest: "uploads/", limits: { fileSize: 20 * 1024 * 1024 } });
 const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 let store = load();
+// Drop documents whose chunks were discarded (old float-array embeddings from before BM25 migration)
+const validDocIds = new Set(store.chunks.map((c) => c.docId));
+const staleIds    = store.documents.filter((d) => !validDocIds.has(d.id)).map((d) => d.id);
+if (staleIds.length) {
+  const { removeDocument } = require("./rag/store");
+  for (const id of staleIds) removeDocument(store, id);
+  console.log(`Cleaned up ${staleIds.length} stale document(s) with no valid chunks`);
+}
 console.log(`Vector store: ${store.documents.length} docs, ${store.chunks.length} chunks`);
 
 function uid() { return crypto.randomUUID(); }
@@ -372,23 +382,40 @@ async function extractText(filePath, originalname) {
   if (ext === ".pdf") {
     const pdfParse = require("pdf-parse");
     const buffer = fs.readFileSync(filePath);
-    const data   = await pdfParse(buffer);
-    return data.text;
+    let data;
+    try {
+      data = await pdfParse(buffer);
+    } catch (err) {
+      throw new Error(`PDF parse failed: ${err.message}`);
+    }
+    const text = (data.text || "").trim();
+    if (!text) throw new Error("PDF has no extractable text — it may be a scanned image. Try copy-pasting the text using the text input instead.");
+    return text;
   }
   return fs.readFileSync(filePath, "utf8");
 }
 
 function indexDocument(id, name, text) {
   const rawChunks = chunkText(text);
-  if (rawChunks.length === 0) throw new Error("No extractable text found");
-  console.log(`Indexing "${name}": ${rawChunks.length} chunks…`);
+  if (rawChunks.length === 0) throw new Error("No text content found in file");
+  console.log(`Indexing "${name}": ${rawChunks.length} chunks`);
   const chunks = rawChunks.map((t) => ({ text: t, tokens: tokenize(t) }));
   addDocument(store, { id, name, chunks });
-  save(store);
-  console.log(`Done indexing "${name}"`);
+  console.log(`Done: "${name}" (${chunks.length} chunks, ${chunks.reduce((s,c)=>s+c.tokens.length,0)} tokens)`);
 }
 
-app.post("/api/documents", requireAdmin, upload.array("files", 20), async (req, res) => {
+// Handle multer errors (file too large, etc.) and return JSON instead of HTML
+function uploadMiddleware(req, res, next) {
+  upload.array("files", 20)(req, res, (err) => {
+    if (!err) return next();
+    const msg = err.code === "LIMIT_FILE_SIZE"
+      ? `File too large (max 20 MB)`
+      : err.message || "Upload error";
+    res.status(400).json({ error: msg });
+  });
+}
+
+app.post("/api/documents", requireAdmin, uploadMiddleware, async (req, res) => {
   const files = req.files;
   if (!files || files.length === 0) return res.status(400).json({ error: "No files uploaded" });
   const results = [];
@@ -400,7 +427,7 @@ app.post("/api/documents", requireAdmin, upload.array("files", 20), async (req, 
       indexDocument(id, originalname, text);
       results.push({ id, name: originalname, ok: true });
     } catch (err) {
-      console.error(`Indexing error for ${originalname}:`, err.message);
+      console.error(`[upload] ${originalname}:`, err.message);
       results.push({ name: originalname, ok: false, error: err.message });
     } finally {
       fs.unlink(filePath, () => {});
