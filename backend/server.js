@@ -218,7 +218,7 @@ const FITNESS_API_URL   = "https://www.googleapis.com/fitness/v1/users/me/datase
 const FITNESS_SCOPES    = [
   "https://www.googleapis.com/auth/fitness.activity.read",
   "https://www.googleapis.com/auth/fitness.body.read",
-  "https://www.googleapis.com/auth/fitness.heart_rate.bpm.read",
+  "https://www.googleapis.com/auth/fitness.heart_rate.read",
 ].join(" ");
 
 async function refreshFitnessToken(tokens) {
