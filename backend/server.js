@@ -473,19 +473,32 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
   // ── Call Gemini ───────────────────────────────────────────────────
   try {
+    const isGemma = model.startsWith("gemma-");
+
     const geminiHistory = history.slice(-10).map((m) => ({
       role:  m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.text }],
     }));
+
+    // Gemma models don't support systemInstruction — prepend as a
+    // user/model exchange at the start of the history instead
+    const historyWithSystem = isGemma && fullSystem
+      ? [
+          { role: "user",  parts: [{ text: fullSystem }] },
+          { role: "model", parts: [{ text: "Understood. I will follow those instructions." }] },
+          ...geminiHistory,
+        ]
+      : geminiHistory;
+
     const modelConfig = {
       model,
-      systemInstruction: fullSystem,
-      generationConfig:  { temperature },
+      generationConfig: { temperature },
     };
+    if (!isGemma) modelConfig.systemInstruction = fullSystem;
     if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
 
     const geminiModel = genAI.getGenerativeModel(modelConfig);
-    const chat        = geminiModel.startChat({ history: geminiHistory });
+    const chat        = geminiModel.startChat({ history: historyWithSystem });
     const result      = await chat.sendMessage(message);
     const reply       = result.response.text();
 
