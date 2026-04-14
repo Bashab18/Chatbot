@@ -25,14 +25,6 @@ const MODEL_GROUPS = [
     ],
   },
   {
-    gen: "Gemma 4",
-    models: [
-      { id: "gemma-4-27b-it",        label: "27B",           desc: "Most capable Gemma 4 open-weights model",        tag: "Open" },
-      { id: "gemma-4-12b-it",        label: "12B",           desc: "Balanced capability and speed" },
-      { id: "gemma-4-4b-it",         label: "4B",            desc: "Lightweight, fast responses",                    tag: "Fast" },
-    ],
-  },
-  {
     gen: "Gemma 3",
     models: [
       { id: "gemma-3-27b-it",        label: "27B",           desc: "Most capable open-weights Gemma model",          tag: "Open" },
