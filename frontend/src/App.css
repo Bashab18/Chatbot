@@ -2099,6 +2099,37 @@ body {
 .profile-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
 .profile-form {}
 
+/* Additional Notes field */
+.profile-notes-field {
+  display: flex; flex-direction: column; gap: 5px;
+  margin-top: 18px;
+}
+.profile-notes-hint {
+  font-size: 12px; color: var(--muted); margin: 0;
+  line-height: 1.5;
+}
+.profile-notes-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.6;
+  padding: 11px 14px;
+  resize: vertical;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100px;
+}
+.profile-notes-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.profile-notes-input::placeholder { color: var(--muted); }
+
 /* ── Google Fit styles ── */
 .fit-connect-btn {
   display: flex;

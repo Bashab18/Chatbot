@@ -196,6 +196,20 @@ export default function ProfilePage() {
               ))}
             </div>
 
+            <div className="profile-notes-field">
+              <label className="profile-field-label">Additional Notes</label>
+              <p className="profile-notes-hint">
+                Anything else you'd like the assistant to know — lifestyle, preferences, recent injuries, etc.
+              </p>
+              <textarea
+                className="profile-notes-input"
+                rows={4}
+                placeholder="e.g. I recently had knee surgery and should avoid high-impact exercises. I prefer morning workouts and follow a vegetarian diet."
+                value={profile.notes || ""}
+                onChange={(e) => setProfile((p) => ({ ...p, notes: e.target.value }))}
+              />
+            </div>
+
             {saveMsg && (
               <div className={`profile-alert profile-alert-${saveMsg.type}`}>{saveMsg.text}</div>
             )}
