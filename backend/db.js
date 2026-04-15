@@ -66,5 +66,6 @@ db.exec(`
 // Safe: throws on duplicate column, which we silently ignore
 try { db.exec("ALTER TABLE users ADD COLUMN profile TEXT NOT NULL DEFAULT '{}'"); } catch (_) {}
 try { db.exec("ALTER TABLE messages ADD COLUMN refs TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE users ADD COLUMN memories TEXT NOT NULL DEFAULT '[]'"); } catch (_) {}
 
 module.exports = db;

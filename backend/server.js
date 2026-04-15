@@ -195,7 +195,7 @@ app.get("/api/user/profile", requireAuth, (req, res) => {
 });
 
 app.put("/api/user/profile", requireAuth, (req, res) => {
-  const ALLOWED = ["age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies"];
+  const ALLOWED = ["age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies", "notes"];
   const profile = getUserProfile(req.user.uid);
   for (const k of ALLOWED) {
     if (req.body[k] !== undefined) {
@@ -206,6 +206,106 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
   setUserProfile(req.user.uid, profile);
   const { googleFitTokens: _tokens, ...safe } = profile;
   res.json({ profile: safe });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// AI MEMORY
+// ══════════════════════════════════════════════════════════════════════
+
+function getMemories(userId) {
+  const row = db.prepare("SELECT memories FROM users WHERE id = ?").get(userId);
+  try { return JSON.parse(row?.memories || "[]"); } catch { return []; }
+}
+
+function saveMemories(userId, memories) {
+  db.prepare("UPDATE users SET memories = ? WHERE id = ?").run(JSON.stringify(memories), userId);
+}
+
+// GET /api/user/memories
+app.get("/api/user/memories", requireAuth, (req, res) => {
+  res.json({ memories: getMemories(req.user.uid) });
+});
+
+// DELETE /api/user/memories/:id
+app.delete("/api/user/memories/:id", requireAuth, (req, res) => {
+  const memories = getMemories(req.user.uid).filter((m) => m.id !== req.params.id);
+  saveMemories(req.user.uid, memories);
+  res.json({ memories });
+});
+
+// POST /api/user/memories/extract  — analyse recent chat history with Gemini
+app.post("/api/user/memories/extract", requireAuth, async (req, res) => {
+  try {
+    // Collect up to 120 recent messages from all of the user's conversations
+    const rows = db.prepare(`
+      SELECT m.role, m.text
+      FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE c.user_id = ?
+      ORDER BY m.timestamp DESC
+      LIMIT 120
+    `).all(req.user.uid);
+
+    if (rows.length === 0) {
+      return res.json({ memories: getMemories(req.user.uid), extracted: 0 });
+    }
+
+    // Reverse so chronological order, build transcript
+    const transcript = rows.reverse()
+      .map((r) => `${r.role === "user" ? "User" : "Assistant"}: ${r.text}`)
+      .join("\n");
+
+    const extractionPrompt = `You are analysing a fitness chatbot conversation transcript to extract personalised facts about the user.
+
+Carefully read the transcript below and extract ONLY concrete, specific facts about the user — things that would help a fitness assistant personalise future responses. Focus on:
+- Health conditions, injuries, limitations, or pain points mentioned
+- Exercise preferences, routines, or activities they enjoy/avoid
+- Dietary preferences, restrictions, or habits
+- Personal goals or motivations they expressed
+- Progress or milestones they mentioned
+- Lifestyle details relevant to fitness (e.g. sleep, stress, work schedule)
+- Equipment available or workout environment
+
+Rules:
+- Each fact must be a short, standalone sentence (max 15 words)
+- Do NOT include generic advice the assistant gave — only facts ABOUT the user
+- Do NOT include greetings, thanks, or small talk
+- Return at most 12 facts
+- If there are no relevant facts, return an empty array
+- Return ONLY a valid JSON array of strings, nothing else
+
+Transcript:
+${transcript}`;
+
+    const { model: botModel } = getBotSettings();
+    const safeModel = botModel.startsWith("gemma-") ? "gemini-1.5-flash" : botModel;
+    const aiModel = genAI.getGenerativeModel({ model: safeModel });
+    const result  = await aiModel.generateContent(extractionPrompt);
+    const raw     = result.response.text().trim();
+
+    // Strip markdown code fences if present
+    const jsonStr = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    let extracted;
+    try { extracted = JSON.parse(jsonStr); } catch {
+      return res.status(500).json({ error: "AI returned unexpected format. Try again." });
+    }
+    if (!Array.isArray(extracted)) extracted = [];
+
+    // Merge with existing memories — skip near-duplicates (same first 40 chars)
+    const existing  = getMemories(req.user.uid);
+    const existingTexts = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
+    const newMemories = extracted
+      .filter((t) => typeof t === "string" && t.trim())
+      .filter((t) => !existingTexts.has(t.trim().slice(0, 40).toLowerCase()))
+      .map((t) => ({ id: uid(), text: t.trim(), source: "auto", createdAt: Date.now() }));
+
+    const merged = [...existing, ...newMemories];
+    saveMemories(req.user.uid, merged);
+    res.json({ memories: merged, extracted: newMemories.length });
+  } catch (err) {
+    console.error("Memory extraction error:", err.message);
+    res.status(500).json({ error: err.message || "Memory extraction failed" });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -414,18 +514,26 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   // ── User profile context ──────────────────────────────────────────
   const userProfile = getUserProfile(req.user.uid);
   const profileLines = [
-    userProfile.age        && `Age: ${userProfile.age}`,
-    userProfile.gender     && `Gender: ${userProfile.gender}`,
-    userProfile.height     && `Height: ${userProfile.height}`,
-    userProfile.weight     && `Weight: ${userProfile.weight}`,
-    userProfile.conditions && `Medical conditions: ${userProfile.conditions}`,
+    userProfile.age         && `Age: ${userProfile.age}`,
+    userProfile.gender      && `Gender: ${userProfile.gender}`,
+    userProfile.height      && `Height: ${userProfile.height}`,
+    userProfile.weight      && `Weight: ${userProfile.weight}`,
+    userProfile.conditions  && `Medical conditions: ${userProfile.conditions}`,
     userProfile.medications && `Current medications: ${userProfile.medications}`,
-    userProfile.goals      && `Health goals: ${userProfile.goals}`,
-    userProfile.allergies  && `Allergies: ${userProfile.allergies}`,
+    userProfile.goals       && `Health goals: ${userProfile.goals}`,
+    userProfile.allergies   && `Allergies: ${userProfile.allergies}`,
+    userProfile.notes       && `Additional notes: ${userProfile.notes}`,
   ].filter(Boolean);
 
   let profileSection = "";
   if (profileLines.length > 0) profileSection += `\n\nUser Profile:\n${profileLines.map((l) => `- ${l}`).join("\n")}`;
+
+  // Inject AI memories
+  const userMemories = getMemories(req.user.uid);
+  if (userMemories.length > 0) {
+    profileSection += `\n\nAI Memory (facts learned from past conversations):\n${userMemories.map((m) => `- ${m.text}`).join("\n")}`;
+  }
+
   if (userProfile.fitnessSnapshot) {
     const { todaySteps, avgHeartRate, weight } = userProfile.fitnessSnapshot;
     const fitLines = [

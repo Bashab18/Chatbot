@@ -29,6 +29,11 @@ export default function ProfilePage() {
   const [loadMsg, setLoadMsg]           = useState("");
   const [saveMsg, setSaveMsg]           = useState(null);
 
+  // AI Memory state
+  const [memories, setMemories]         = useState([]);
+  const [memExtracting, setMemExtracting] = useState(false);
+  const [memMsg, setMemMsg]             = useState(null);
+
   // Google Fit state
   const [fitConnected, setFitConnected] = useState(false);
   const [fitSnapshot, setFitSnapshot]   = useState(null);
@@ -55,11 +60,15 @@ export default function ProfilePage() {
     return data;
   }
 
-  // ── Load profile ────────────────────────────────────────────────────
+  // ── Load profile + memories ─────────────────────────────────────────
   useEffect(() => {
     apiFetch("/api/user/profile")
       .then((d) => { if (d.profile) setProfile(d.profile); })
       .catch(() => setLoadMsg("Could not load profile."));
+
+    apiFetch("/api/user/memories")
+      .then((d) => { if (d.memories) setMemories(d.memories); })
+      .catch(() => {});
 
     apiFetch("/api/fitness/status")
       .then((d) => {
@@ -96,6 +105,35 @@ export default function ProfilePage() {
       setSaveMsg({ type: "error", text: err.message });
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── AI Memory: extract from chat history ───────────────────────────
+  async function handleExtractMemories() {
+    setMemExtracting(true); setMemMsg(null);
+    try {
+      const data = await apiFetch("/api/user/memories/extract", { method: "POST" });
+      setMemories(data.memories || []);
+      if (data.extracted === 0) {
+        setMemMsg({ type: "info", text: "No new facts found in recent chats. Try chatting more first!" });
+      } else {
+        setMemMsg({ type: "success", text: `${data.extracted} new memory${data.extracted === 1 ? "" : "s"} added from your chat history.` });
+      }
+      setTimeout(() => setMemMsg(null), 4000);
+    } catch (err) {
+      setMemMsg({ type: "error", text: err.message });
+    } finally {
+      setMemExtracting(false);
+    }
+  }
+
+  // ── AI Memory: delete one ───────────────────────────────────────────
+  async function handleDeleteMemory(id) {
+    try {
+      const data = await apiFetch(`/api/user/memories/${id}`, { method: "DELETE" });
+      setMemories(data.memories || []);
+    } catch (err) {
+      setMemMsg({ type: "error", text: err.message });
     }
   }
 
@@ -220,6 +258,82 @@ export default function ProfilePage() {
               </button>
             </div>
           </form>
+        </section>
+
+        {/* ── AI Memory ────────────────────────────────────────────── */}
+        <section className="profile-card">
+          <div className="mem-header">
+            <div>
+              <h2 className="profile-section-title">AI Memory</h2>
+              <p className="profile-section-desc">
+                Facts the AI has learned about you from past conversations. These are sent with every message to personalise responses.
+              </p>
+            </div>
+            <button
+              className="mem-extract-btn"
+              type="button"
+              onClick={handleExtractMemories}
+              disabled={memExtracting}
+            >
+              {memExtracting ? (
+                <>
+                  <span className="mem-spinner" />
+                  Analysing…
+                </>
+              ) : (
+                <>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/>
+                  </svg>
+                  Extract from Chats
+                </>
+              )}
+            </button>
+          </div>
+
+          {memMsg && (
+            <div className={`profile-alert profile-alert-${memMsg.type === "info" ? "info" : memMsg.type}`}>
+              {memMsg.text}
+            </div>
+          )}
+
+          {memories.length === 0 ? (
+            <div className="mem-empty">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" opacity=".25">
+                <path d="M13 2.05v2.02c3.95.49 7 3.85 7 7.93 0 3.21-1.81 6-4.72 7.28L13 17v5h5l-1.22-1.22C19.91 19.07 22 15.76 22 12c0-5.18-3.95-9.45-9-9.95zM11 2.05C5.95 2.55 2 6.82 2 12c0 3.76 2.09 7.07 5.22 8.78L6 22h5v-5l-2.28 2.28C6.81 18 5 15.21 5 12c0-4.08 3.05-7.44 7-7.93V2.05z"/>
+              </svg>
+              <p>No memories yet. Click <strong>Extract from Chats</strong> to analyse your conversation history.</p>
+            </div>
+          ) : (
+            <ul className="mem-list">
+              {memories.map((m) => (
+                <li key={m.id} className="mem-item">
+                  <div className="mem-item-left">
+                    <span className={`mem-source-badge${m.source === "auto" ? " auto" : " manual"}`}>
+                      {m.source === "auto" ? "AI" : "You"}
+                    </span>
+                    <span className="mem-text">{m.text}</span>
+                  </div>
+                  <button
+                    className="mem-delete-btn"
+                    type="button"
+                    title="Forget this memory"
+                    onClick={() => handleDeleteMemory(m.id)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854z"/>
+                    </svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {memories.length > 0 && (
+            <p className="mem-count-hint">
+              {memories.length} memor{memories.length === 1 ? "y" : "ies"} — included in every AI response
+            </p>
+          )}
         </section>
 
         {/* ── Google Fit ────────────────────────────────────────────── */}
