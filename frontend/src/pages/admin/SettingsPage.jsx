@@ -91,6 +91,69 @@ function SliderRow({ label, hint, min, max, step, value, onChange, format }) {
   );
 }
 
+// Toggle + slider combined row used for Knowledge Sources
+function ToggleSliderRow({ label, hint, value, onChange, warning, error }) {
+  const enabled  = value > 0;
+  const savedRef = useRef(value > 0 ? value : 50);
+
+  function handleToggle() {
+    if (enabled) {
+      savedRef.current = value; // remember before zeroing
+      onChange(0);
+    } else {
+      onChange(savedRef.current || 50);
+    }
+  }
+
+  return (
+    <div className={`toggle-slider-field${!enabled ? " ts-off" : ""}`}>
+      <div className="toggle-slider-header">
+        <div className="toggle-slider-left">
+          <button type="button"
+            className={`src-toggle${enabled ? " on" : ""}`}
+            onClick={handleToggle}
+            title={enabled ? "Disable this source" : "Enable this source"}
+          >
+            <div className="src-toggle-knob" />
+          </button>
+          <span className="slider-label">{label}</span>
+        </div>
+        <span className={`slider-value${!enabled ? " ts-off-val" : ""}`}>
+          {enabled ? `${value}%` : "Off"}
+        </span>
+      </div>
+      {hint && <p className="slider-hint">{hint}</p>}
+      {error   && <p className="src-banner src-banner-error">{error}</p>}
+      {warning && !error && <p className="src-banner src-banner-warn">{warning}</p>}
+      <input type="range" min={0} max={100} step={5} value={value}
+        onChange={(e) => { if (enabled) onChange(parseFloat(e.target.value)); }}
+        className="slider-input"
+        disabled={!enabled} />
+      <div className="slider-ticks"><span>0</span><span>100</span></div>
+    </div>
+  );
+}
+
+// Derive warnings/errors for a given model + web search state
+function useSourceValidation(model, webSearchWeight) {
+  const isGemma     = model.startsWith("gemma-");
+  const isGemini15  = model.startsWith("gemini-1.5");
+  const webOn       = webSearchWeight > 0;
+
+  const webError   = webOn && isGemma
+    ? "Gemma models don't support Live Web Search. Disable web search or switch to a Gemini model."
+    : null;
+  const webWarning = webOn && isGemini15 && !isGemma
+    ? "Live Web Search works best with Gemini 2.0+ models. Results may be less reliable on Gemini 1.5."
+    : null;
+
+  const modelNote = isGemma && webOn
+    ? "⚠ Live Web Search is enabled but not supported by Gemma models."
+    : null;
+
+  return { webError, webWarning, modelNote };
+}
+
 function TTSSection({ s, set }) {
   const [voices, setVoices]         = useState([]);
   const [loadingVoices, setLoading] = useState(false);
@@ -298,6 +361,8 @@ export default function SettingsPage() {
 
   if (loading) return <div className="admin-page"><div className="admin-loading"><div className="auth-spinner" /></div></div>;
 
+  const { webError, webWarning, modelNote } = useSourceValidation(s.model, s.webSearchWeight ?? 0);
+
   return (
     <div className="admin-page">
       <div className="admin-page-header">
@@ -330,6 +395,9 @@ export default function SettingsPage() {
               </div>
             </div>
           ))}
+          {modelNote && (
+            <p className="src-banner src-banner-error" style={{ marginTop: 14 }}>{modelNote}</p>
+          )}
         </Card>
 
         {/* ── Response Style ───────────────────────────────── */}
@@ -373,20 +441,28 @@ export default function SettingsPage() {
 
         {/* ── Knowledge Sources ───────────────────────────── */}
         <Card title="Knowledge Sources"
-          desc="Control which sources the bot draws on when answering. Each slider is independent — set to 0 to disable that source.">
+          desc="Toggle each source on or off, then use the slider to set its weight. Sources set to 0 (Off) are skipped entirely.">
           <div className="sliders-group">
-            <SliderRow label="Knowledge Base" min={0} max={100} step={5}
-              value={s.ragWeight ?? 100} onChange={(v) => set("ragWeight", v)}
-              format={(v) => `${v}%`}
-              hint="Use indexed documents from the knowledge base. Disable to skip KB lookup entirely." />
-            <SliderRow label="AI Own Knowledge" min={0} max={100} step={5}
-              value={s.ownKnowledgeWeight ?? 0} onChange={(v) => set("ownKnowledgeWeight", v)}
-              format={(v) => `${v}%`}
-              hint="Allow the AI to draw on its own training data. When disabled with KB-only, non-matching queries get the refusal message." />
-            <SliderRow label="Live Web Search" min={0} max={100} step={5}
-              value={s.webSearchWeight ?? 0} onChange={(v) => set("webSearchWeight", v)}
-              format={(v) => `${v}%`}
-              hint="Enable Google Search grounding for real-time web results. Recommended with Gemini 2.0+ models." />
+            <ToggleSliderRow
+              label="Knowledge Base"
+              hint="Search indexed documents from the knowledge base. Turn off to skip KB lookup entirely."
+              value={s.ragWeight ?? 100}
+              onChange={(v) => set("ragWeight", v)}
+            />
+            <ToggleSliderRow
+              label="AI Own Knowledge"
+              hint="Allow the AI to draw on its own training data. When off (KB-only mode), unmatched queries get the refusal message."
+              value={s.ownKnowledgeWeight ?? 0}
+              onChange={(v) => set("ownKnowledgeWeight", v)}
+            />
+            <ToggleSliderRow
+              label="Live Web Search"
+              hint="Enable Google Search grounding for real-time web results. Requires Gemini 2.0+ models."
+              value={s.webSearchWeight ?? 0}
+              onChange={(v) => set("webSearchWeight", v)}
+              error={webError}
+              warning={webWarning}
+            />
           </div>
         </Card>
 
