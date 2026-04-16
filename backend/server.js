@@ -236,67 +236,98 @@ app.delete("/api/user/memories/:id", requireAuth, (req, res) => {
 // POST /api/user/memories/extract  — analyse recent chat history with Gemini
 app.post("/api/user/memories/extract", requireAuth, async (req, res) => {
   try {
-    // Collect up to 120 recent messages from all of the user's conversations
+    // Collect up to 150 recent messages from all of the user's conversations
     const rows = db.prepare(`
       SELECT m.role, m.text
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
       WHERE c.user_id = ?
       ORDER BY m.timestamp DESC
-      LIMIT 120
+      LIMIT 150
     `).all(req.user.uid);
 
     if (rows.length === 0) {
       return res.json({ memories: getMemories(req.user.uid), extracted: 0 });
     }
 
-    // Reverse so chronological order, build transcript
-    const transcript = rows.reverse()
+    // Reverse so chronological order; cap transcript at 6000 chars to stay
+    // within token limits (trim from the oldest end, keep most recent context)
+    const fullTranscript = rows.reverse()
       .map((r) => `${r.role === "user" ? "User" : "Assistant"}: ${r.text}`)
       .join("\n");
+    const transcript = fullTranscript.length > 6000
+      ? "...[earlier messages omitted]...\n" + fullTranscript.slice(-6000)
+      : fullTranscript;
 
-    const extractionPrompt = `You are analysing a fitness chatbot conversation transcript to extract personalised facts about the user.
+    const extractionPrompt = `You are analysing a fitness chatbot conversation to extract personalised facts about the user.
 
-Carefully read the transcript below and extract ONLY concrete, specific facts about the user — things that would help a fitness assistant personalise future responses. Focus on:
-- Health conditions, injuries, limitations, or pain points mentioned
-- Exercise preferences, routines, or activities they enjoy/avoid
+Extract ONLY concrete facts about the user that would help a fitness assistant personalise future responses:
+- Health conditions, injuries, limitations, or pain points
+- Exercise preferences, routines, or activities they enjoy or avoid
 - Dietary preferences, restrictions, or habits
-- Personal goals or motivations they expressed
+- Personal goals or motivations
 - Progress or milestones they mentioned
-- Lifestyle details relevant to fitness (e.g. sleep, stress, work schedule)
-- Equipment available or workout environment
+- Lifestyle details (sleep, stress, work schedule, equipment available)
 
 Rules:
-- Each fact must be a short, standalone sentence (max 15 words)
-- Do NOT include generic advice the assistant gave — only facts ABOUT the user
-- Do NOT include greetings, thanks, or small talk
+- Each fact must be a short standalone sentence (max 15 words)
+- Only facts ABOUT the user — not generic advice the assistant gave
+- Ignore greetings, thanks, or small talk
 - Return at most 12 facts
-- If there are no relevant facts, return an empty array
-- Return ONLY a valid JSON array of strings, nothing else
+- Return an empty array if no relevant facts exist
+- Output: a JSON array of strings ONLY, e.g. ["fact one", "fact two"]
 
-Transcript:
+Conversation:
 ${transcript}`;
 
     const { model: botModel } = getBotSettings();
+    // Gemma models don't support structured output — always use a Gemini model
     const safeModel = botModel.startsWith("gemma-") ? "gemini-1.5-flash" : botModel;
-    const aiModel = genAI.getGenerativeModel({ model: safeModel });
-    const result  = await aiModel.generateContent(extractionPrompt);
-    const raw     = result.response.text().trim();
 
-    // Strip markdown code fences if present
-    const jsonStr = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    let extracted;
-    try { extracted = JSON.parse(jsonStr); } catch {
-      return res.status(500).json({ error: "AI returned unexpected format. Try again." });
+    // Force valid JSON output so we never get markdown fences or prose
+    const aiModel = genAI.getGenerativeModel({
+      model: safeModel,
+      generationConfig: { responseMimeType: "application/json" },
+    });
+
+    const result = await aiModel.generateContent(extractionPrompt);
+    const raw    = result.response.text().trim();
+
+    // Parse with multiple fallback strategies
+    let extracted = null;
+
+    // Strategy 1 — direct parse (works when responseMimeType forces clean JSON)
+    try { extracted = JSON.parse(raw); } catch { /* try next */ }
+
+    // Strategy 2 — strip markdown fences then parse
+    if (extracted === null) {
+      const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      try { extracted = JSON.parse(stripped); } catch { /* try next */ }
     }
-    if (!Array.isArray(extracted)) extracted = [];
+
+    // Strategy 3 — find the first JSON array anywhere in the text
+    if (extracted === null) {
+      const match = raw.match(/\[[\s\S]*?\]/);
+      if (match) try { extracted = JSON.parse(match[0]); } catch { /* fall through */ }
+    }
+
+    // If model returned {"facts":[...]} or similar object, unwrap it
+    if (extracted !== null && !Array.isArray(extracted)) {
+      extracted = extracted.facts || extracted.memories || extracted.items
+        || extracted.results || Object.values(extracted).find(Array.isArray)
+        || [];
+    }
+
+    if (!Array.isArray(extracted)) {
+      return res.status(500).json({ error: "Could not parse AI response. Please try again." });
+    }
 
     // Merge with existing memories — skip near-duplicates (same first 40 chars)
-    const existing  = getMemories(req.user.uid);
-    const existingTexts = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
-    const newMemories = extracted
-      .filter((t) => typeof t === "string" && t.trim())
-      .filter((t) => !existingTexts.has(t.trim().slice(0, 40).toLowerCase()))
+    const existing      = getMemories(req.user.uid);
+    const existingKeys  = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
+    const newMemories   = extracted
+      .filter((t) => typeof t === "string" && t.trim().length > 0)
+      .filter((t) => !existingKeys.has(t.trim().slice(0, 40).toLowerCase()))
       .map((t) => ({ id: uid(), text: t.trim(), source: "auto", createdAt: Date.now() }));
 
     const merged = [...existing, ...newMemories];

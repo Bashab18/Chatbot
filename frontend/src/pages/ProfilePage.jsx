@@ -30,9 +30,10 @@ export default function ProfilePage() {
   const [saveMsg, setSaveMsg]           = useState(null);
 
   // AI Memory state
-  const [memories, setMemories]         = useState([]);
+  const [memories, setMemories]           = useState([]);
+  const [memLoading, setMemLoading]       = useState(true);
   const [memExtracting, setMemExtracting] = useState(false);
-  const [memMsg, setMemMsg]             = useState(null);
+  const [memMsg, setMemMsg]               = useState(null);
 
   // Google Fit state
   const [fitConnected, setFitConnected] = useState(false);
@@ -67,8 +68,9 @@ export default function ProfilePage() {
       .catch(() => setLoadMsg("Could not load profile."));
 
     apiFetch("/api/user/memories")
-      .then((d) => { if (d.memories) setMemories(d.memories); })
-      .catch(() => {});
+      .then((d) => { setMemories(d.memories || []); })
+      .catch(() => setMemMsg({ type: "error", text: "Could not load memories." }))
+      .finally(() => setMemLoading(false));
 
     apiFetch("/api/fitness/status")
       .then((d) => {
@@ -297,7 +299,12 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {memories.length === 0 ? (
+          {memLoading ? (
+            <div className="mem-loading">
+              <span className="mem-spinner" />
+              <span>Loading memories…</span>
+            </div>
+          ) : memories.length === 0 ? (
             <div className="mem-empty">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" opacity=".25">
                 <path d="M13 2.05v2.02c3.95.49 7 3.85 7 7.93 0 3.21-1.81 6-4.72 7.28L13 17v5h5l-1.22-1.22C19.91 19.07 22 15.76 22 12c0-5.18-3.95-9.45-9-9.95zM11 2.05C5.95 2.55 2 6.82 2 12c0 3.76 2.09 7.07 5.22 8.78L6 22h5v-5l-2.28 2.28C6.81 18 5 15.21 5 12c0-4.08 3.05-7.44 7-7.93V2.05z"/>
@@ -306,8 +313,8 @@ export default function ProfilePage() {
             </div>
           ) : (
             <ul className="mem-list">
-              {memories.map((m) => (
-                <li key={m.id} className="mem-item">
+              {memories.map((m, i) => (
+                <li key={m.id || i} className="mem-item">
                   <div className="mem-item-left">
                     <span className={`mem-source-badge${m.source === "auto" ? " auto" : " manual"}`}>
                       {m.source === "auto" ? "AI" : "You"}
