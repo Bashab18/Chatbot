@@ -1,15 +1,15 @@
 require("dotenv").config();
-const express   = require("express");
-const cors      = require("cors");
-const multer    = require("multer");
-const path      = require("path");
-const fs        = require("fs");
-const crypto    = require("crypto");
+const express = require("express");
+const cors = require("cors");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { tokenize } = require("./rag/embed");
-const { chunkText }     = require("./rag/chunker");
+const { chunkText } = require("./rag/chunker");
 const { load, save, addDocument, removeDocument, search } = require("./rag/store");
-const db        = require("./db");
+const db = require("./db");
 const { hashPassword, checkPassword, signToken, requireAuth, requireAdmin } = require("./auth");
 
 const app = express();
@@ -19,12 +19,12 @@ app.use(express.json());
 // Ensure uploads directory exists before multer tries to write to it
 fs.mkdirSync("uploads", { recursive: true });
 const upload = multer({ dest: "uploads/", limits: { fileSize: 20 * 1024 * 1024 } });
-const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 let store = load();
 // Drop documents whose chunks were discarded (old float-array embeddings from before BM25 migration)
 const validDocIds = new Set(store.chunks.map((c) => c.docId));
-const staleIds    = store.documents.filter((d) => !validDocIds.has(d.id)).map((d) => d.id);
+const staleIds = store.documents.filter((d) => !validDocIds.has(d.id)).map((d) => d.id);
 if (staleIds.length) {
   const { removeDocument } = require("./rag/store");
   for (const id of staleIds) removeDocument(store, id);
@@ -37,25 +37,25 @@ function uid() { return crypto.randomUUID(); }
 // ── Bot settings helpers ──────────────────────────────────────────────
 const DEFAULT_BOT = {
   // AI
-  model:              "gemini-1.5-flash",
-  systemPrompt:       "You are a friendly and supportive fitness assistant designed specifically for older adults. You provide safe, practical guidance on exercise, physical activity, balance, flexibility, nutrition, and healthy ageing. Always use clear, simple language. Encourage users to stay active while reminding them to consult their doctor or physiotherapist before starting new exercises, especially if they have health conditions.",
-  style:              "balanced",   // precise | balanced | creative
+  model: "gemini-1.5-flash",
+  systemPrompt: "You are a friendly and supportive fitness assistant designed specifically for older adults. You provide safe, practical guidance on exercise, physical activity, balance, flexibility, nutrition, and healthy ageing. Always use clear, simple language. Encourage users to stay active while reminding them to consult their doctor or physiotherapist before starting new exercises, especially if they have health conditions.",
+  style: "balanced",   // precise | balanced | creative
   // RAG
-  ragTopK:            5,
-  ragMinScore:        0,
-  refusalMessage:     "I'm sorry, I don't have information about that in my knowledge base.",
+  ragTopK: 5,
+  ragMinScore: 0,
+  refusalMessage: "I'm sorry, I don't have information about that in my knowledge base.",
   // Knowledge source weights (0-100, independent)
-  ragWeight:          100,   // use knowledge base documents
+  ragWeight: 100,   // use knowledge base documents
   ownKnowledgeWeight: 0,     // allow AI own training knowledge
-  webSearchWeight:    0,     // enable live web search (Google Search grounding)
+  webSearchWeight: 0,     // enable live web search (Google Search grounding)
   // Appearance
-  theme:              "dark",
+  theme: "dark",
   // TTS (ElevenLabs)
-  ttsEnabled:         true,
-  ttsVoiceId:         "21m00Tcm4TlvDq8ikWAM",
-  ttsModelId:         "eleven_turbo_v2_5",
-  ttsStability:       0.5,
-  ttsSimilarity:      0.75,
+  ttsEnabled: true,
+  ttsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+  ttsModelId: "eleven_turbo_v2_5",
+  ttsStability: 0.5,
+  ttsSimilarity: 0.75,
 };
 
 function getBotSettings() {
@@ -66,7 +66,7 @@ function getBotSettings() {
 
 function setBotSettings(data) {
   const current = getBotSettings();
-  const updated  = { ...current, ...data };
+  const updated = { ...current, ...data };
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('chatbot', ?)").run(
     JSON.stringify(updated)
   );
@@ -86,15 +86,15 @@ app.post("/api/auth/signup", (req, res) => {
   if (existing) return res.status(409).json({ error: "An account with this email already exists" });
 
   const user = {
-    id:            uid(),
-    email:         email.toLowerCase(),
-    name:          name.trim(),
+    id: uid(),
+    email: email.toLowerCase(),
+    name: name.trim(),
     role,
     password_hash: hashPassword(password),
-    login_count:   0,
-    last_login:    null,
-    note:          "",
-    created_at:    Date.now(),
+    login_count: 0,
+    last_login: null,
+    note: "",
+    created_at: Date.now(),
   };
 
   db.prepare(
@@ -139,7 +139,7 @@ app.get("/api/conversations", requireAuth, (req, res) => {
 });
 
 app.post("/api/conversations", requireAuth, (req, res) => {
-  const now  = Date.now();
+  const now = Date.now();
   const conv = { id: uid(), user_id: req.user.uid, title: "New Chat", created_at: now, updated_at: now };
   db.prepare("INSERT INTO conversations (id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)")
     .run(conv.id, conv.user_id, conv.title, conv.created_at, conv.updated_at);
@@ -291,7 +291,7 @@ ${transcript}`;
     });
 
     const result = await aiModel.generateContent(extractionPrompt);
-    const raw    = result.response.text().trim();
+    const raw = result.response.text().trim();
 
     // Parse with multiple fallback strategies
     let extracted = null;
@@ -323,9 +323,9 @@ ${transcript}`;
     }
 
     // Merge with existing memories — skip near-duplicates (same first 40 chars)
-    const existing      = getMemories(req.user.uid);
-    const existingKeys  = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
-    const newMemories   = extracted
+    const existing = getMemories(req.user.uid);
+    const existingKeys = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
+    const newMemories = extracted
       .filter((t) => typeof t === "string" && t.trim().length > 0)
       .filter((t) => !existingKeys.has(t.trim().slice(0, 40).toLowerCase()))
       .map((t) => ({ id: uid(), text: t.trim(), source: "auto", createdAt: Date.now() }));
@@ -343,10 +343,10 @@ ${transcript}`;
 // GOOGLE FIT INTEGRATION
 // ══════════════════════════════════════════════════════════════════════
 
-const GOOGLE_AUTH_URL   = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL  = "https://oauth2.googleapis.com/token";
-const FITNESS_API_URL   = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate";
-const FITNESS_SCOPES    = [
+const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const FITNESS_API_URL = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate";
+const FITNESS_SCOPES = [
   "https://www.googleapis.com/auth/fitness.activity.read",
   "https://www.googleapis.com/auth/fitness.body.read",
   "https://www.googleapis.com/auth/fitness.heart_rate.read",
@@ -354,12 +354,12 @@ const FITNESS_SCOPES    = [
 
 async function refreshFitnessToken(tokens) {
   const params = new URLSearchParams({
-    client_id:     process.env.GOOGLE_CLIENT_ID,
+    client_id: process.env.GOOGLE_CLIENT_ID,
     client_secret: process.env.GOOGLE_CLIENT_SECRET,
     refresh_token: tokens.refresh_token,
-    grant_type:    "refresh_token",
+    grant_type: "refresh_token",
   });
-  const r    = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
+  const r = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
   const data = await r.json();
   if (data.error) throw new Error(`Token refresh: ${data.error_description || data.error}`);
   return { ...tokens, access_token: data.access_token, expires_at: Date.now() + data.expires_in * 1000 };
@@ -371,9 +371,9 @@ async function getValidFitnessToken(tokens) {
 }
 
 async function fetchFitnessData(accessToken) {
-  const now         = Date.now();
+  const now = Date.now();
   const sevenDaysAgo = now - 7 * 86_400_000;
-  const startOfDay  = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
 
   const body = {
     aggregateBy: [
@@ -389,7 +389,7 @@ async function fetchFitnessData(accessToken) {
   const r = await fetch(FITNESS_API_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body:   JSON.stringify(body),
+    body: JSON.stringify(body),
   });
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));
@@ -401,13 +401,13 @@ async function fetchFitnessData(accessToken) {
 
   for (const bucket of (data.bucket || [])) {
     const bucketStart = parseInt(bucket.startTimeMillis, 10);
-    const isToday     = bucketStart >= startOfDay.getTime();
+    const isToday = bucketStart >= startOfDay.getTime();
     for (const dataset of (bucket.dataset || [])) {
       for (const point of (dataset.point || [])) {
         const id = dataset.dataSourceId || "";
-        if (id.includes("step_count") && isToday)  todaySteps += (point.value?.[0]?.intVal || 0);
-        if (id.includes("heart_rate"))              { const hr = point.value?.[0]?.fpVal; if (hr) heartRates.push(hr); }
-        if (id.includes("weight"))                  { const w  = point.value?.[0]?.fpVal; if (w)  weight = w; }
+        if (id.includes("step_count") && isToday) todaySteps += (point.value?.[0]?.intVal || 0);
+        if (id.includes("heart_rate")) { const hr = point.value?.[0]?.fpVal; if (hr) heartRates.push(hr); }
+        if (id.includes("weight")) { const w = point.value?.[0]?.fpVal; if (w) weight = w; }
       }
     }
   }
@@ -423,13 +423,13 @@ app.get("/api/fitness/auth-url", requireAuth, (req, res) => {
     return res.status(503).json({ error: "Google Fit not configured (set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)" });
   }
   const params = new URLSearchParams({
-    client_id:     process.env.GOOGLE_CLIENT_ID,
-    redirect_uri:  process.env.GOOGLE_REDIRECT_URI,
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    redirect_uri: process.env.GOOGLE_REDIRECT_URI,
     response_type: "code",
-    scope:         FITNESS_SCOPES,
-    access_type:   "offline",
-    prompt:        "consent",
-    state:         Buffer.from(req.user.uid).toString("base64"),
+    scope: FITNESS_SCOPES,
+    access_type: "offline",
+    prompt: "consent",
+    state: Buffer.from(req.user.uid).toString("base64"),
   });
   res.json({ url: `${GOOGLE_AUTH_URL}?${params}` });
 });
@@ -448,26 +448,26 @@ app.get("/api/fitness/callback", async (req, res) => {
 
   try {
     const params = new URLSearchParams({
-      client_id:     process.env.GOOGLE_CLIENT_ID,
+      client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri:  process.env.GOOGLE_REDIRECT_URI,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
       code,
-      grant_type:    "authorization_code",
+      grant_type: "authorization_code",
     });
-    const tokenRes  = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
+    const tokenRes = await fetch(GOOGLE_TOKEN_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: params.toString() });
     const tokenData = await tokenRes.json();
     if (tokenData.error) throw new Error(tokenData.error_description || tokenData.error);
 
     const tokens = {
-      access_token:  tokenData.access_token,
+      access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
-      expires_at:    Date.now() + tokenData.expires_in * 1000,
+      expires_at: Date.now() + tokenData.expires_in * 1000,
     };
 
     const profile = getUserProfile(userId);
     profile.googleFitTokens = tokens;
     try {
-      profile.fitnessSnapshot  = await fetchFitnessData(tokens.access_token);
+      profile.fitnessSnapshot = await fetchFitnessData(tokens.access_token);
       profile.fitnessFetchedAt = Date.now();
     } catch (e) { console.warn("Initial fitness fetch failed:", e.message); }
 
@@ -480,8 +480,8 @@ app.get("/api/fitness/callback", async (req, res) => {
 });
 
 app.get("/api/fitness/status", requireAuth, (req, res) => {
-  const profile    = getUserProfile(req.user.uid);
-  const connected  = !!(profile.googleFitTokens?.refresh_token);
+  const profile = getUserProfile(req.user.uid);
+  const connected = !!(profile.googleFitTokens?.refresh_token);
   res.json({ connected, snapshot: profile.fitnessSnapshot || null, fetchedAt: profile.fitnessFetchedAt || null });
 });
 
@@ -489,11 +489,11 @@ app.post("/api/fitness/refresh", requireAuth, async (req, res) => {
   const profile = getUserProfile(req.user.uid);
   if (!profile.googleFitTokens?.refresh_token) return res.status(400).json({ error: "Google Fit not connected" });
   try {
-    const tokens  = await getValidFitnessToken(profile.googleFitTokens);
-    const fresh   = await refreshFitnessToken(tokens);
+    const tokens = await getValidFitnessToken(profile.googleFitTokens);
+    const fresh = await refreshFitnessToken(tokens);
     const fitData = await fetchFitnessData(fresh.access_token);
-    profile.googleFitTokens  = fresh;
-    profile.fitnessSnapshot  = fitData;
+    profile.googleFitTokens = fresh;
+    profile.fitnessSnapshot = fitData;
     profile.fitnessFetchedAt = Date.now();
     setUserProfile(req.user.uid, profile);
     res.json({ snapshot: fitData, fetchedAt: profile.fitnessFetchedAt });
@@ -533,27 +533,27 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
 
   const { model, systemPrompt, style, ragTopK, ragMinScore, refusalMessage,
-          ragWeight, ownKnowledgeWeight, webSearchWeight } = getBotSettings();
-  const STYLE_TEMP  = { precise: 0.2, balanced: 0.7, creative: 1.2 };
+    ragWeight, ownKnowledgeWeight, webSearchWeight } = getBotSettings();
+  const STYLE_TEMP = { precise: 0.2, balanced: 0.7, creative: 1.2 };
   const temperature = STYLE_TEMP[style] ?? 0.7;
 
-  const useRAG         = ragWeight > 0;
-  const useOwnKnow     = ownKnowledgeWeight > 0;
-  const useWebSearch   = webSearchWeight > 0;
-  const strictKBOnly   = useRAG && !useOwnKnow && !useWebSearch;
+  const useRAG = ragWeight > 0;
+  const useOwnKnow = ownKnowledgeWeight > 0;
+  const useWebSearch = webSearchWeight > 0;
+  const strictKBOnly = useRAG && !useOwnKnow && !useWebSearch;
 
   // ── User profile context ──────────────────────────────────────────
   const userProfile = getUserProfile(req.user.uid);
   const profileLines = [
-    userProfile.age         && `Age: ${userProfile.age}`,
-    userProfile.gender      && `Gender: ${userProfile.gender}`,
-    userProfile.height      && `Height: ${userProfile.height}`,
-    userProfile.weight      && `Weight: ${userProfile.weight}`,
-    userProfile.conditions  && `Medical conditions: ${userProfile.conditions}`,
+    userProfile.age && `Age: ${userProfile.age}`,
+    userProfile.gender && `Gender: ${userProfile.gender}`,
+    userProfile.height && `Height: ${userProfile.height}`,
+    userProfile.weight && `Weight: ${userProfile.weight}`,
+    userProfile.conditions && `Medical conditions: ${userProfile.conditions}`,
     userProfile.medications && `Current medications: ${userProfile.medications}`,
-    userProfile.goals       && `Health goals: ${userProfile.goals}`,
-    userProfile.allergies   && `Allergies: ${userProfile.allergies}`,
-    userProfile.notes       && `Additional notes: ${userProfile.notes}`,
+    userProfile.goals && `Health goals: ${userProfile.goals}`,
+    userProfile.allergies && `Allergies: ${userProfile.allergies}`,
+    userProfile.notes && `Additional notes: ${userProfile.notes}`,
   ].filter(Boolean);
 
   let profileSection = "";
@@ -568,9 +568,9 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   if (userProfile.fitnessSnapshot) {
     const { todaySteps, avgHeartRate, weight } = userProfile.fitnessSnapshot;
     const fitLines = [
-      todaySteps   && `Steps today: ${todaySteps.toLocaleString()}`,
+      todaySteps && `Steps today: ${todaySteps.toLocaleString()}`,
       avgHeartRate && `Avg heart rate (7 d): ${avgHeartRate} bpm`,
-      weight       && `Weight: ${weight} kg`,
+      weight && `Weight: ${weight} kg`,
     ].filter(Boolean);
     if (fitLines.length > 0) profileSection += `\n\nRecent Fitness Data (Google Fit):\n${fitLines.map((l) => `- ${l}`).join("\n")}`;
   }
@@ -586,13 +586,13 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
   // ── Early exits (strict KB-only with no results) ──────────────────
   if (strictKBOnly && store.chunks.length === 0) {
-    const reply    = "The knowledge base is empty. Please ask your administrator to upload documents.";
+    const reply = "The knowledge base is empty. Please ask your administrator to upload documents.";
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)").run(botMsgId, conversationId, "assistant", reply, Date.now());
     return res.json({ userMsgId, botMsgId, reply, refs: [] });
   }
   if (strictKBOnly && hits.length === 0) {
-    const reply    = refusalMessage;
+    const reply = refusalMessage;
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)").run(botMsgId, conversationId, "assistant", reply, Date.now());
     return res.json({ userMsgId, botMsgId, reply, refs: [] });
@@ -615,7 +615,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const isGemma = model.startsWith("gemma-");
 
     const geminiHistory = history.slice(-10).map((m) => ({
-      role:  m.role === "assistant" ? "model" : "user",
+      role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.text }],
     }));
 
@@ -623,10 +623,10 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     // user/model exchange at the start of the history instead
     const historyWithSystem = isGemma && fullSystem
       ? [
-          { role: "user",  parts: [{ text: fullSystem }] },
-          { role: "model", parts: [{ text: "Understood. I will follow those instructions." }] },
-          ...geminiHistory,
-        ]
+        { role: "user", parts: [{ text: fullSystem }] },
+        { role: "model", parts: [{ text: "Understood. I will follow those instructions." }] },
+        ...geminiHistory,
+      ]
       : geminiHistory;
 
     const modelConfig = {
@@ -637,14 +637,14 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
 
     const geminiModel = genAI.getGenerativeModel(modelConfig);
-    const chat        = geminiModel.startChat({ history: historyWithSystem });
-    const result      = await chat.sendMessage(message);
-    const reply       = result.response.text();
+    const chat = geminiModel.startChat({ history: historyWithSystem });
+    const result = await chat.sendMessage(message);
+    const reply = result.response.text();
 
     // Extract web grounding sources (if web search enabled)
     if (useWebSearch) {
       const candidates = result.response.candidates || [];
-      const gm         = candidates[0]?.groundingMetadata;
+      const gm = candidates[0]?.groundingMetadata;
       if (gm?.groundingChunks) {
         for (const chunk of gm.groundingChunks) {
           if (chunk.web?.uri) refs.push({ name: chunk.web.title || chunk.web.uri, text: chunk.web.uri, type: "web" });
@@ -661,7 +661,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     res.json({ userMsgId, botMsgId, reply, refs });
   } catch (err) {
     console.error("Gemini error:", err.message);
-    const errMsg   = `⚠️ ${err.message}`;
+    const errMsg = `⚠️ ${err.message}`;
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
       .run(botMsgId, conversationId, "assistant", errMsg, Date.now());
@@ -674,7 +674,7 @@ app.post("/api/title", requireAuth, async (req, res) => {
   const { message, conversationId } = req.body;
   if (!message) return res.status(400).json({ error: "message is required" });
   try {
-    const m    = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const m = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const chat = m.startChat({ history: [] });
     const result = await chat.sendMessage(
       `Generate a concise 4-6 word title for a conversation that starts with this message. ` +
@@ -697,15 +697,15 @@ app.post("/api/title", requireAuth, async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════
 
 app.get("/api/admin/stats", requireAdmin, (req, res) => {
-  const users    = db.prepare("SELECT login_count, last_login FROM users WHERE role = 'user'").all();
-  const total    = users.length;
+  const users = db.prepare("SELECT login_count, last_login FROM users WHERE role = 'user'").all();
+  const total = users.length;
   const totalLog = users.reduce((s, u) => s + (u.login_count || 0), 0);
-  const avgLog   = total ? (totalLog / total).toFixed(1) : 0;
-  const lastLog  = users.map((u) => u.last_login || 0).filter(Boolean);
+  const avgLog = total ? (totalLog / total).toFixed(1) : 0;
+  const lastLog = users.map((u) => u.last_login || 0).filter(Boolean);
   res.json({
-    totalUsers:      total,
-    kbDocs:          store.documents.length,
-    avgLogins:       parseFloat(avgLog),
+    totalUsers: total,
+    kbDocs: store.documents.length,
+    avgLogins: parseFloat(avgLog),
     mostRecentLogin: lastLog.length ? Math.max(...lastLog) : null,
   });
 });
@@ -720,9 +720,11 @@ app.get("/api/admin/recent-chats", requireAdmin, (req, res) => {
 // Public read-only settings used by the chat UI (theme, TTS defaults, etc.)
 app.get("/api/settings", requireAuth, (req, res) => {
   const { model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity,
-          ragWeight, ownKnowledgeWeight, webSearchWeight } = getBotSettings();
-  res.json({ model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity,
-             ragWeight, ownKnowledgeWeight, webSearchWeight });
+    ragWeight, ownKnowledgeWeight, webSearchWeight } = getBotSettings();
+  res.json({
+    model, style, theme, ttsEnabled, ttsVoiceId, ttsModelId, ttsStability, ttsSimilarity,
+    ragWeight, ownKnowledgeWeight, webSearchWeight
+  });
 });
 
 app.get("/api/admin/settings", requireAdmin, (req, res) => {
@@ -823,7 +825,7 @@ function indexDocument(id, name, text) {
   console.log(`Indexing "${name}": ${rawChunks.length} chunks`);
   const chunks = rawChunks.map((t) => ({ text: t, tokens: tokenize(t) }));
   addDocument(store, { id, name, chunks });
-  console.log(`Done: "${name}" (${chunks.length} chunks, ${chunks.reduce((s,c)=>s+c.tokens.length,0)} tokens)`);
+  console.log(`Done: "${name}" (${chunks.length} chunks, ${chunks.reduce((s, c) => s + c.tokens.length, 0)} tokens)`);
 }
 
 // Handle multer errors (file too large, etc.) and return JSON instead of HTML
@@ -852,7 +854,7 @@ app.post("/api/documents", requireAdmin, uploadMiddleware, async (req, res) => {
       console.error(`[upload] ${originalname}:`, err.message);
       results.push({ name: originalname, ok: false, error: err.message });
     } finally {
-      fs.unlink(filePath, () => {});
+      fs.unlink(filePath, () => { });
     }
   }
   res.json({ results });
@@ -887,21 +889,34 @@ const xiHeaders = () => ({ "xi-api-key": process.env.ELEVENLABS_API_KEY, "Conten
 app.get("/api/tts/voices", async (req, res) => {
   if (!process.env.ELEVENLABS_API_KEY) return res.status(400).json({ error: "ELEVENLABS_API_KEY not set" });
   try {
-    const r    = await fetch(`${XI_BASE}/voices`, { headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY } });
+    const r = await fetch(`${XI_BASE}/voices`, { headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY } });
     const data = await r.json();
     res.json({ voices: (data.voices || []).map((v) => ({ voice_id: v.voice_id, name: v.name, category: v.category, labels: v.labels || {} })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+function stripMarkdownForSpeech(text) {
+  return text
+    .replace(/#{1,6}\s/g, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/^[-•*]\s/gm, '')
+    .replace(/^\d+\.\s/gm, '')
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')
+    .replace(/\|/g, '')
+    .replace(/\n{2,}/g, ' ')
+    .trim();
+}
+
 app.post("/api/tts", async (req, res) => {
   if (!process.env.ELEVENLABS_API_KEY) return res.status(400).json({ error: "ELEVENLABS_API_KEY not set" });
   const { text, voiceId = "21m00Tcm4TlvDq8ikWAM", modelId = "eleven_turbo_v2_5", stability = 0.5, similarityBoost = 0.75 } = req.body;
   if (!text) return res.status(400).json({ error: "text is required" });
-  try {
+  const cleanText = stripMarkdownForSpeech(text); try {
     const r = await fetch(`${XI_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
-      method:  "POST",
+      method: "POST",
       headers: xiHeaders(),
-      body:    JSON.stringify({ text, model_id: modelId, voice_settings: { stability, similarity_boost: similarityBoost } }),
+      body: JSON.stringify({ text: cleanText, model_id: modelId, voice_settings: { stability, similarity_boost: similarityBoost } }),
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); return res.status(r.status).json({ error: e?.detail?.message || `ElevenLabs ${r.status}` }); }
     const buf = await r.arrayBuffer();
