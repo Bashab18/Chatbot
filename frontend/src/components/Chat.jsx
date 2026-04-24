@@ -175,10 +175,21 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
         {isEmpty && (
           <div className="empty-state">
             <div className="empty-logo">✦</div>
-            <h2>How can I help you?</h2>
-            <p>Gemini {modelLabel} · {settings?.style ?? "balanced"}{docCount > 0 ? ` · ${docCount} doc${docCount > 1 ? "s" : ""} loaded` : ""}</p>
+            <div className="empty-wellness-badge">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+              </svg>
+              Health &amp; Wellness Assistant
+            </div>
+            <h2>How can I help you today?</h2>
+            <p>Ask me anything about fitness, nutrition, medications, or managing your health goals.</p>
             <div className="suggestion-chips">
-              {["Explain a concept simply", "Help me write some code", "Summarize key points", "Brainstorm ideas with me"].map((s) => (
+              {[
+                "What exercises are safe for my age?",
+                "Help me understand my medications",
+                "Create a gentle walking plan for me",
+                "What foods help reduce inflammation?",
+              ].map((s) => (
                 <button key={s} className="suggestion-chip" onClick={() => setInput(s)}>
                   {s}
                 </button>
@@ -215,7 +226,7 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Gemini anything… (Shift+Enter for new line)"
+            placeholder="Ask about your health, fitness, or wellness… (Shift+Enter for new line)"
             rows={1}
             disabled={loading}
           />
@@ -230,7 +241,7 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
             </svg>
           </button>
         </div>
-        <p className="disclaimer">Gemini can make mistakes. Verify important info.</p>
+        <p className="disclaimer">For general wellness guidance only — always consult your healthcare provider for medical decisions.</p>
       </div>
     </div>
   );
