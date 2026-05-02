@@ -585,13 +585,17 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   }
 
   // ── Early exits (strict KB-only with no results) ──────────────────
-  if (strictKBOnly && store.chunks.length === 0) {
+  // Skip early exits if the user has a profile — Gemini should always be able
+  // to personalise responses using profile/memory context even when the KB is empty.
+  const hasProfileContext = profileSection.trim().length > 0;
+
+  if (strictKBOnly && store.chunks.length === 0 && !hasProfileContext) {
     const reply = "The knowledge base is empty. Please ask your administrator to upload documents.";
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)").run(botMsgId, conversationId, "assistant", reply, Date.now());
     return res.json({ userMsgId, botMsgId, reply, refs: [] });
   }
-  if (strictKBOnly && hits.length === 0) {
+  if (strictKBOnly && hits.length === 0 && !hasProfileContext) {
     const reply = refusalMessage;
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)").run(botMsgId, conversationId, "assistant", reply, Date.now());
