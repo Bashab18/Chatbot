@@ -132,13 +132,17 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
   const isEmpty = conversation.messages.length === 0;
 
   const modelLabel = {
-    "gemini-2.5-pro":         "2.5 Pro",
-    "gemini-2.5-flash":       "2.5 Flash",
-    "gemini-2.0-flash":       "2.0 Flash",
-    "gemini-2.0-flash-lite":  "2.0 Lite",
-    "gemini-1.5-pro":         "1.5 Pro",
-    "gemini-1.5-flash":       "1.5 Flash",
-    "gemini-1.5-flash-8b":    "1.5 Flash-8B",
+    "gemini-3.1-pro-preview":        "3.1 Pro",
+    "gemini-3.1-flash-lite-preview":  "3.1 Flash Lite",
+    "gemini-3-pro-preview":          "3 Pro",
+    "gemini-3-flash-preview":        "3 Flash",
+    "gemini-2.5-pro":                "2.5 Pro",
+    "gemini-2.5-flash":              "2.5 Flash",
+    "gemini-2.5-flash-lite":         "2.5 Flash Lite",
+    "gemini-2.0-flash":              "2.0 Flash",
+    "gemini-2.0-flash-lite":         "2.0 Lite",
+    "gemma-4-31b-it":                "Gemma 4 31B",
+    "gemma-4-26b-a4b-it":            "Gemma 4 26B",
   }[settings?.model] ?? settings?.model;
 
   return (

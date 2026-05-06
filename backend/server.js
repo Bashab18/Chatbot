@@ -37,7 +37,7 @@ function uid() { return crypto.randomUUID(); }
 // ── Bot settings helpers ──────────────────────────────────────────────
 const DEFAULT_BOT = {
   // AI
-  model: "gemini-1.5-flash",
+  model: "gemini-3-flash-preview",
   systemPrompt: "You are a friendly and supportive fitness assistant designed specifically for older adults. You provide safe, practical guidance on exercise, physical activity, balance, flexibility, nutrition, and healthy ageing. Always use clear, simple language. Encourage users to stay active while reminding them to consult their doctor or physiotherapist before starting new exercises, especially if they have health conditions.",
   style: "balanced",   // precise | balanced | creative
   // RAG
@@ -63,8 +63,8 @@ function getBotSettings() {
   if (!row) return DEFAULT_BOT;
   try {
     const saved = JSON.parse(row.value);
-    // Gemma models are no longer supported; fall back to default
-    if (saved.model && saved.model.startsWith("gemma-")) saved.model = DEFAULT_BOT.model;
+    // Gemma 3 is not available on the standard API key; fall back to default
+    if (saved.model && /^gemma-3/.test(saved.model)) saved.model = DEFAULT_BOT.model;
     return { ...DEFAULT_BOT, ...saved };
   } catch { return DEFAULT_BOT; }
 }
