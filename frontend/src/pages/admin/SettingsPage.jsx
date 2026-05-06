@@ -26,6 +26,7 @@ const MODEL_GROUPS = [
   },
   {
     gen: "Gemma 3",
+    note: "Requires Gemma API access — may not be available on all API keys",
     models: [
       { id: "gemma-3-27b-it",        label: "27B",           desc: "Most capable open-weights Gemma model",          tag: "Open" },
       { id: "gemma-3-12b-it",        label: "12B",           desc: "Balanced capability and speed" },
@@ -379,6 +380,9 @@ export default function SettingsPage() {
           {MODEL_GROUPS.map((group) => (
             <div key={group.gen} className="model-group-section">
               <div className="model-group-label">{group.gen}</div>
+              {group.note && (
+                <p className="src-banner src-banner-warn" style={{ marginBottom: 8 }}>⚠ {group.note}</p>
+              )}
               <div className="model-grid">
                 {group.models.map((m) => (
                   <label key={m.id} className={`model-card${s.model === m.id ? " selected" : ""}`}>

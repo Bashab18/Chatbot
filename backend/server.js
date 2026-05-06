@@ -665,7 +665,12 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     res.json({ userMsgId, botMsgId, reply, refs });
   } catch (err) {
     console.error("Gemini error:", err.message);
-    const errMsg = `⚠️ ${err.message}`;
+    let errMsg;
+    if (err.message.includes("404") || err.message.toLowerCase().includes("not found")) {
+      errMsg = `⚠️ Model "${model}" is not available with your API key. Please choose a different model in Admin → Bot Settings.`;
+    } else {
+      errMsg = `⚠️ ${err.message}`;
+    }
     const botMsgId = uid();
     db.prepare("INSERT INTO messages (id, conversation_id, role, text, timestamp) VALUES (?,?,?,?,?)")
       .run(botMsgId, conversationId, "assistant", errMsg, Date.now());
