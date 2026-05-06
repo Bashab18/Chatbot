@@ -6,7 +6,6 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { VertexAI }            = require("@google-cloud/vertexai");
 const { tokenize } = require("./rag/embed");
 const { chunkText } = require("./rag/chunker");
 const { load, save, addDocument, removeDocument, search } = require("./rag/store");
@@ -22,21 +21,6 @@ fs.mkdirSync("uploads", { recursive: true });
 const upload = multer({ dest: "uploads/", limits: { fileSize: 20 * 1024 * 1024 } });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Vertex AI client — used for Gemma 3 models (requires GOOGLE_CLOUD_PROJECT)
-const vertexAI = process.env.GOOGLE_CLOUD_PROJECT
-  ? new VertexAI({
-      project:  process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION || "us-central1",
-    })
-  : null;
-
-// Map settings model IDs to Vertex AI publisher model names
-const VERTEX_MODEL_MAP = {
-  "gemma-3-27b-it": "publishers/google/models/gemma-3-27b-it",
-  "gemma-3-12b-it": "publishers/google/models/gemma-3-12b-it",
-  "gemma-3-4b-it":  "publishers/google/models/gemma-3-4b-it",
-  "gemma-3-1b-it":  "publishers/google/models/gemma-3-1b-it",
-};
 
 let store = load();
 // Drop documents whose chunks were discarded (old float-array embeddings from before BM25 migration)
@@ -80,10 +64,8 @@ function getBotSettings() {
   if (!row) return DEFAULT_BOT;
   try {
     const saved = JSON.parse(row.value);
-    // Gemma 3 requires Vertex AI; fall back to default if not configured
-    if (saved.model && /^gemma-3/.test(saved.model) && !process.env.GOOGLE_CLOUD_PROJECT) {
-      saved.model = DEFAULT_BOT.model;
-    }
+    // Gemma 3 is not available on the standard API key; fall back to default
+    if (saved.model && /^gemma-3/.test(saved.model)) saved.model = DEFAULT_BOT.model;
     return { ...DEFAULT_BOT, ...saved };
   } catch { return DEFAULT_BOT; }
 }
@@ -638,17 +620,9 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     }
   }
 
-  // ── Call AI model ─────────────────────────────────────────────────
+  // ── Call Gemini ───────────────────────────────────────────────────
   try {
-    const isGemma3  = model.startsWith("gemma-3");
-    const useVertex = isGemma3 && vertexAI !== null;
-
-    if (isGemma3 && !vertexAI) {
-      throw new Error(
-        `Gemma 3 models require Vertex AI. Set GOOGLE_CLOUD_PROJECT and ` +
-        `GOOGLE_APPLICATION_CREDENTIALS in your environment, then restart the server.`
-      );
-    }
+    const isGemma = model.startsWith("gemma-");
 
     const geminiHistory = history.slice(-10).map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
@@ -657,7 +631,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
     // Gemma models don't support systemInstruction — prepend as a
     // user/model exchange at the start of the history instead
-    const isGemma = model.startsWith("gemma-");
     const historyWithSystem = isGemma && fullSystem
       ? [
         { role: "user",  parts: [{ text: fullSystem }] },
@@ -666,38 +639,25 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       ]
       : geminiHistory;
 
-    let reply;
+    const modelConfig = {
+      model,
+      generationConfig: { temperature },
+    };
+    if (!isGemma) modelConfig.systemInstruction = fullSystem;
+    if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
 
-    if (useVertex) {
-      const vertexModelId = VERTEX_MODEL_MAP[model] || model;
-      const vertexModel = vertexAI.getGenerativeModel({
-        model: vertexModelId,
-        generationConfig: { temperature },
-      });
-      const chat   = vertexModel.startChat({ history: historyWithSystem });
-      const result = await chat.sendMessage(message);
-      reply = result.response.candidates[0].content.parts[0].text;
-    } else {
-      const modelConfig = {
-        model,
-        generationConfig: { temperature },
-      };
-      if (!isGemma) modelConfig.systemInstruction = fullSystem;
-      if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
+    const geminiModel = genAI.getGenerativeModel(modelConfig);
+    const chat   = geminiModel.startChat({ history: historyWithSystem });
+    const result = await chat.sendMessage(message);
+    const reply  = result.response.text();
 
-      const geminiModel = genAI.getGenerativeModel(modelConfig);
-      const chat   = geminiModel.startChat({ history: historyWithSystem });
-      const result = await chat.sendMessage(message);
-      reply = result.response.text();
-
-      // Extract web grounding sources
-      if (useWebSearch) {
-        const candidates = result.response.candidates || [];
-        const gm = candidates[0]?.groundingMetadata;
-        if (gm?.groundingChunks) {
-          for (const chunk of gm.groundingChunks) {
-            if (chunk.web?.uri) refs.push({ name: chunk.web.title || chunk.web.uri, text: chunk.web.uri, type: "web" });
-          }
+    // Extract web grounding sources
+    if (useWebSearch) {
+      const candidates = result.response.candidates || [];
+      const gm = candidates[0]?.groundingMetadata;
+      if (gm?.groundingChunks) {
+        for (const chunk of gm.groundingChunks) {
+          if (chunk.web?.uri) refs.push({ name: chunk.web.title || chunk.web.uri, text: chunk.web.uri, type: "web" });
         }
       }
     }
@@ -710,10 +670,10 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
     res.json({ userMsgId, botMsgId, reply, refs });
   } catch (err) {
-    console.error("AI error:", err.message);
+    console.error("Gemini error:", err.message);
     let errMsg;
     if (err.message.includes("404") || err.message.toLowerCase().includes("not found")) {
-      errMsg = `⚠️ Model "${model}" is not available. Please choose a different model in Admin → Bot Settings.`;
+      errMsg = `⚠️ Model "${model}" is not available with your API key. Please choose a different model in Admin → Bot Settings.`;
     } else {
       errMsg = `⚠️ ${err.message}`;
     }
