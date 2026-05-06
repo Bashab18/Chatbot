@@ -34,8 +34,18 @@ const MODEL_GROUPS = [
   {
     gen: "Gemma 4",
     models: [
-      { id: "gemma-4-31b-it",     label: "4 — 31B",   desc: "Dense 31B model — strong reasoning" },
+      { id: "gemma-4-31b-it",     label: "4 — 31B",     desc: "Dense 31B model — strong reasoning" },
       { id: "gemma-4-26b-a4b-it", label: "4 — 26B MoE", desc: "26B MoE — efficient high-throughput" },
+    ],
+  },
+  {
+    gen: "Gemma 3",
+    note: "Requires Google Cloud Vertex AI (set GOOGLE_CLOUD_PROJECT on the server)",
+    models: [
+      { id: "gemma-3-27b-it", label: "3 — 27B", desc: "Most capable Gemma 3 model" },
+      { id: "gemma-3-12b-it", label: "3 — 12B", desc: "Balanced performance" },
+      { id: "gemma-3-4b-it",  label: "3 — 4B",  desc: "Lightweight and fast" },
+      { id: "gemma-3-1b-it",  label: "3 — 1B",  desc: "Ultra-compact, edge-friendly", tag: "Fastest" },
     ],
   },
 ];
