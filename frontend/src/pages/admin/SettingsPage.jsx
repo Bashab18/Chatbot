@@ -24,16 +24,6 @@ const MODEL_GROUPS = [
       { id: "gemini-1.5-flash-8b",   label: "1.5 Flash-8B",  desc: "Fastest and most compact",                       tag: "Fastest" },
     ],
   },
-  {
-    gen: "Gemma 3",
-    note: "Requires Gemma API access — may not be available on all API keys",
-    models: [
-      { id: "gemma-3-27b-it",        label: "27B",           desc: "Most capable open-weights Gemma model",          tag: "Open" },
-      { id: "gemma-3-12b-it",        label: "12B",           desc: "Balanced capability and speed" },
-      { id: "gemma-3-4b-it",         label: "4B",            desc: "Lightweight, fast responses",                    tag: "Fast" },
-      { id: "gemma-3-1b-it",         label: "1B",            desc: "Ultra-compact, lowest latency",                  tag: "Smallest" },
-    ],
-  },
 ];
 
 const STYLES = [

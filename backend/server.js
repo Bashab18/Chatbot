@@ -61,7 +61,12 @@ const DEFAULT_BOT = {
 function getBotSettings() {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'chatbot'").get();
   if (!row) return DEFAULT_BOT;
-  try { return { ...DEFAULT_BOT, ...JSON.parse(row.value) }; } catch { return DEFAULT_BOT; }
+  try {
+    const saved = JSON.parse(row.value);
+    // Gemma models are no longer supported; fall back to default
+    if (saved.model && saved.model.startsWith("gemma-")) saved.model = DEFAULT_BOT.model;
+    return { ...DEFAULT_BOT, ...saved };
+  } catch { return DEFAULT_BOT; }
 }
 
 function setBotSettings(data) {
