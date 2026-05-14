@@ -227,33 +227,45 @@ function saveMemories(userId, memories) {
   db.prepare("UPDATE users SET memories = ? WHERE id = ?").run(JSON.stringify(memories), userId);
 }
 
-// Core extraction logic — also called by the background auto-extractor below.
-// Returns { memories, extracted } on success or { error } on failure.
-async function extractMemoriesFor(userId) {
-  // Collect up to 150 recent messages from all of the user's conversations
-  const rows = db.prepare(`
-    SELECT m.role, m.text
-    FROM messages m
-    JOIN conversations c ON c.id = m.conversation_id
-    WHERE c.user_id = ?
-    ORDER BY m.timestamp DESC
-    LIMIT 150
-  `).all(userId);
+// GET /api/user/memories
+app.get("/api/user/memories", requireAuth, (req, res) => {
+  res.json({ memories: getMemories(req.user.uid) });
+});
 
-  if (rows.length === 0) {
-    return { memories: getMemories(userId), extracted: 0 };
-  }
+// DELETE /api/user/memories/:id
+app.delete("/api/user/memories/:id", requireAuth, (req, res) => {
+  const memories = getMemories(req.user.uid).filter((m) => m.id !== req.params.id);
+  saveMemories(req.user.uid, memories);
+  res.json({ memories });
+});
 
-  // Reverse so chronological order; cap transcript at 6000 chars to stay
-  // within token limits (trim from the oldest end, keep most recent context)
-  const fullTranscript = rows.reverse()
-    .map((r) => `${r.role === "user" ? "User" : "Assistant"}: ${r.text}`)
-    .join("\n");
-  const transcript = fullTranscript.length > 6000
-    ? "...[earlier messages omitted]...\n" + fullTranscript.slice(-6000)
-    : fullTranscript;
+// POST /api/user/memories/extract  — analyse recent chat history with Gemini
+app.post("/api/user/memories/extract", requireAuth, async (req, res) => {
+  try {
+    // Collect up to 150 recent messages from all of the user's conversations
+    const rows = db.prepare(`
+      SELECT m.role, m.text
+      FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE c.user_id = ?
+      ORDER BY m.timestamp DESC
+      LIMIT 150
+    `).all(req.user.uid);
 
-  const extractionPrompt = `You are analysing a fitness chatbot conversation to extract personalised facts about the user.
+    if (rows.length === 0) {
+      return res.json({ memories: getMemories(req.user.uid), extracted: 0 });
+    }
+
+    // Reverse so chronological order; cap transcript at 6000 chars to stay
+    // within token limits (trim from the oldest end, keep most recent context)
+    const fullTranscript = rows.reverse()
+      .map((r) => `${r.role === "user" ? "User" : "Assistant"}: ${r.text}`)
+      .join("\n");
+    const transcript = fullTranscript.length > 6000
+      ? "...[earlier messages omitted]...\n" + fullTranscript.slice(-6000)
+      : fullTranscript;
+
+    const extractionPrompt = `You are analysing a fitness chatbot conversation to extract personalised facts about the user.
 
 Extract ONLY concrete facts about the user that would help a fitness assistant personalise future responses:
 - Health conditions, injuries, limitations, or pain points
@@ -274,109 +286,59 @@ Rules:
 Conversation:
 ${transcript}`;
 
-  const { model: botModel } = getBotSettings();
-  // Gemma models don't support structured output — always use a Gemini model
-  const safeModel = botModel.startsWith("gemma-") ? "gemini-1.5-flash" : botModel;
+    const { model: botModel } = getBotSettings();
+    // Gemma models don't support structured output — always use a Gemini model
+    const safeModel = botModel.startsWith("gemma-") ? "gemini-1.5-flash" : botModel;
 
-  // Force valid JSON output so we never get markdown fences or prose
-  const aiModel = genAI.getGenerativeModel({
-    model: safeModel,
-    generationConfig: { responseMimeType: "application/json" },
-  });
+    // Force valid JSON output so we never get markdown fences or prose
+    const aiModel = genAI.getGenerativeModel({
+      model: safeModel,
+      generationConfig: { responseMimeType: "application/json" },
+    });
 
-  const result = await aiModel.generateContent(extractionPrompt);
-  const raw = result.response.text().trim();
+    const result = await aiModel.generateContent(extractionPrompt);
+    const raw = result.response.text().trim();
 
-  // Parse with multiple fallback strategies
-  let extracted = null;
+    // Parse with multiple fallback strategies
+    let extracted = null;
 
-  // Strategy 1 — direct parse (works when responseMimeType forces clean JSON)
-  try { extracted = JSON.parse(raw); } catch { /* try next */ }
+    // Strategy 1 — direct parse (works when responseMimeType forces clean JSON)
+    try { extracted = JSON.parse(raw); } catch { /* try next */ }
 
-  // Strategy 2 — strip markdown fences then parse
-  if (extracted === null) {
-    const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    try { extracted = JSON.parse(stripped); } catch { /* try next */ }
-  }
-
-  // Strategy 3 — find the first JSON array anywhere in the text
-  if (extracted === null) {
-    const match = raw.match(/\[[\s\S]*?\]/);
-    if (match) try { extracted = JSON.parse(match[0]); } catch { /* fall through */ }
-  }
-
-  // If model returned {"facts":[...]} or similar object, unwrap it
-  if (extracted !== null && !Array.isArray(extracted)) {
-    extracted = extracted.facts || extracted.memories || extracted.items
-      || extracted.results || Object.values(extracted).find(Array.isArray)
-      || [];
-  }
-
-  if (!Array.isArray(extracted)) {
-    return { error: "Could not parse AI response." };
-  }
-
-  // Merge with existing memories — skip near-duplicates (same first 40 chars)
-  const existing = getMemories(userId);
-  const existingKeys = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
-  const newMemories = extracted
-    .filter((t) => typeof t === "string" && t.trim().length > 0)
-    .filter((t) => !existingKeys.has(t.trim().slice(0, 40).toLowerCase()))
-    .map((t) => ({ id: uid(), text: t.trim(), source: "auto", createdAt: Date.now() }));
-
-  const merged = [...existing, ...newMemories];
-  saveMemories(userId, merged);
-  return { memories: merged, extracted: newMemories.length };
-}
-
-// ── Auto-extract memories in the background ───────────────────────────
-// After each chat exchange we kick off extraction so the next prompt has
-// fresh facts from the user's other conversations — without making them
-// wait or click "Extract from Chats" on the profile page.
-// Rate-limited per user to one run every 30 minutes (in-memory; lost on
-// restart, which is fine since on boot we'd happily extract again).
-const lastAutoExtractAt = new Map(); // userId → ms timestamp
-const AUTO_EXTRACT_COOLDOWN_MS = 30 * 60 * 1000;
-
-function maybeAutoExtractMemories(userId) {
-  const last = lastAutoExtractAt.get(userId) || 0;
-  if (Date.now() - last < AUTO_EXTRACT_COOLDOWN_MS) return;
-  // Claim the slot BEFORE the async work so concurrent chats don't all fire
-  lastAutoExtractAt.set(userId, Date.now());
-
-  extractMemoriesFor(userId).then((result) => {
-    if (result.extracted) {
-      console.log(`[auto-memory] user=${userId} added ${result.extracted} new fact(s)`);
-    } else if (result.error) {
-      console.warn(`[auto-memory] user=${userId} parse error: ${result.error}`);
+    // Strategy 2 — strip markdown fences then parse
+    if (extracted === null) {
+      const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      try { extracted = JSON.parse(stripped); } catch { /* try next */ }
     }
-  }).catch((err) => {
-    console.warn(`[auto-memory] user=${userId} threw:`, err.message);
-  });
-}
 
-// GET /api/user/memories
-app.get("/api/user/memories", requireAuth, (req, res) => {
-  res.json({ memories: getMemories(req.user.uid) });
-});
-
-// DELETE /api/user/memories/:id
-app.delete("/api/user/memories/:id", requireAuth, (req, res) => {
-  const memories = getMemories(req.user.uid).filter((m) => m.id !== req.params.id);
-  saveMemories(req.user.uid, memories);
-  res.json({ memories });
-});
-
-// POST /api/user/memories/extract  — manual trigger from the Profile page
-app.post("/api/user/memories/extract", requireAuth, async (req, res) => {
-  try {
-    const result = await extractMemoriesFor(req.user.uid);
-    if (result.error) {
-      return res.status(500).json({ error: result.error + " Please try again." });
+    // Strategy 3 — find the first JSON array anywhere in the text
+    if (extracted === null) {
+      const match = raw.match(/\[[\s\S]*?\]/);
+      if (match) try { extracted = JSON.parse(match[0]); } catch { /* fall through */ }
     }
-    // Manual run resets the cooldown so the background won't double-fire
-    lastAutoExtractAt.set(req.user.uid, Date.now());
-    res.json(result);
+
+    // If model returned {"facts":[...]} or similar object, unwrap it
+    if (extracted !== null && !Array.isArray(extracted)) {
+      extracted = extracted.facts || extracted.memories || extracted.items
+        || extracted.results || Object.values(extracted).find(Array.isArray)
+        || [];
+    }
+
+    if (!Array.isArray(extracted)) {
+      return res.status(500).json({ error: "Could not parse AI response. Please try again." });
+    }
+
+    // Merge with existing memories — skip near-duplicates (same first 40 chars)
+    const existing = getMemories(req.user.uid);
+    const existingKeys = new Set(existing.map((m) => m.text.slice(0, 40).toLowerCase()));
+    const newMemories = extracted
+      .filter((t) => typeof t === "string" && t.trim().length > 0)
+      .filter((t) => !existingKeys.has(t.trim().slice(0, 40).toLowerCase()))
+      .map((t) => ({ id: uid(), text: t.trim(), source: "auto", createdAt: Date.now() }));
+
+    const merged = [...existing, ...newMemories];
+    saveMemories(req.user.uid, merged);
+    res.json({ memories: merged, extracted: newMemories.length });
   } catch (err) {
     console.error("Memory extraction error:", err.message);
     res.status(500).json({ error: err.message || "Memory extraction failed" });
@@ -707,10 +669,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(Date.now(), conversationId);
 
     res.json({ userMsgId, botMsgId, reply, refs });
-
-    // Background: refresh AI memories from recent chats (rate-limited per user)
-    // so the next message has fresh context from other conversations.
-    maybeAutoExtractMemories(req.user.uid);
   } catch (err) {
     console.error("Gemini error:", err.message);
     let errMsg;
