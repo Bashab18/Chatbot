@@ -66,6 +66,11 @@ function getBotSettings() {
     const saved = JSON.parse(row.value);
     // Gemma 3 is not available on the standard API key; fall back to default
     if (saved.model && /^gemma-3/.test(saved.model)) saved.model = DEFAULT_BOT.model;
+    // ElevenLabs retired these TTS models -- every synthesis call using them
+    // 400s, silently breaking voice for everyone until an admin notices.
+    if (saved.ttsModelId && ["eleven_monolingual_v1", "eleven_multilingual_v1"].includes(saved.ttsModelId)) {
+      saved.ttsModelId = DEFAULT_BOT.ttsModelId;
+    }
     return { ...DEFAULT_BOT, ...saved };
   } catch { return DEFAULT_BOT; }
 }
