@@ -160,11 +160,29 @@ function UserDetailModal({ userId, onClose, getToken }) {
                   {dh.activeCalories != null && <StatCard value={dh.activeCalories} label="Active kcal" />}
                   {dh.latestHeartRate != null && <StatCard value={`${dh.latestHeartRate} bpm`} label="Latest HR" />}
                   {dh.restingHeartRate != null && <StatCard value={`${dh.restingHeartRate} bpm`} label="Resting HR" />}
+                  {dh.peakHeartRate != null && <StatCard value={`${dh.peakHeartRate} bpm`} label="Peak HR" />}
+                  {dh.hrvMs != null && <StatCard value={`${dh.hrvMs} ms`} label="HRV" />}
                   {dh.sleepHoursLastNight != null && <StatCard value={`${dh.sleepHoursLastNight} h`} label="Sleep last night" />}
+                  {dh.deepSleepHours != null && <StatCard value={`${dh.deepSleepHours} h`} label="Deep sleep" />}
+                  {dh.remSleepHours != null && <StatCard value={`${dh.remSleepHours} h`} label="REM sleep" />}
+                  {dh.lightSleepHours != null && <StatCard value={`${dh.lightSleepHours} h`} label="Light sleep" />}
                 </div>
+                {dh.heartZoneMinutes && Object.keys(dh.heartZoneMinutes).length > 0 && (
+                  <>
+                    <p className="profile-section-desc" style={{ marginTop: 12, marginBottom: 4 }}>Heart-rate zone minutes</p>
+                    {Object.entries(dh.heartZoneMinutes).map(([zone, mins]) => (
+                      <Row key={zone} label={zone} value={`${mins} min`} />
+                    ))}
+                  </>
+                )}
                 {dh.fetchedAt && <p className="fit-fetched-at">Last synced: {formatDateTime(dh.fetchedAt)}</p>}
               </>
             ) : <p className="slider-hint">Not shared -- user hasn't enabled "Share with paired coaches" in the mHealth app.</p>}
+
+            <SectionTitle>Connected Devices</SectionTitle>
+            {p.connectedDevices?.length > 0 ? (
+              p.connectedDevices.map((d, i) => <Row key={i} label={d.name} value={d.kind} />)
+            ) : <p className="slider-hint">None connected.</p>}
 
             {p.recentSessions?.length > 0 && (
               <>
@@ -176,9 +194,31 @@ function UserDetailModal({ userId, onClose, getToken }) {
                     <StatCard value={`${workoutTotals.kcal} kcal`} label="Total burned" />
                   </div>
                 )}
-                {p.recentSessions.map((s, i) => (
-                  <Row key={i} label={s.name} value={`${s.elapsedMin} min · ${s.kcal} kcal · ${new Date(s.savedAt).toLocaleDateString()}`} />
-                ))}
+                {p.recentSessions.map((s, i) => {
+                  const detailParts = [
+                    s.type,
+                    s.distanceKm != null && `${s.distanceKm} km`,
+                    s.pace && `${s.pace}/km`,
+                    s.hr != null && `${s.hr} bpm avg`,
+                    s.sets != null && `${s.sets} sets`,
+                    s.feel != null && `felt ${s.feel}/5`,
+                    s.completed != null && s.total != null && `${s.completed}/${s.total} exercises`,
+                  ].filter(Boolean);
+                  return (
+                    <div key={i} style={{ padding: "7px 0", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                        <span style={{ opacity: 0.65 }}>{s.name}</span>
+                        <span style={{ textAlign: "right" }}>{s.elapsedMin} min · {s.kcal} kcal · {new Date(s.savedAt).toLocaleDateString()}</span>
+                      </div>
+                      {(detailParts.length > 0 || s.notes) && (
+                        <div style={{ fontSize: 12.5, opacity: 0.6, marginTop: 2 }}>
+                          {detailParts.join(" · ")}
+                          {s.notes && <div style={{ marginTop: 2 }}>"{s.notes}"</div>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </>
             )}
 

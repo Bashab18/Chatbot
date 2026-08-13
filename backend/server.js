@@ -276,30 +276,68 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
   res.json({ profile: safe });
 });
 
-// Pushed from the mHealth mobile app -- its on-device Health Connect /
-// HealthKit data and recent workout log, which (unlike Google Fit) this
-// server can't reach on its own since it's local to the phone. Only sent
-// when the user has "Share with paired coaches" enabled in the app.
+// Pushed from the mHealth mobile app -- its full on-device Health Connect /
+// HealthKit snapshot (steps, heart rate incl. resting/peak/HRV, sleep incl.
+// stage breakdown, heart-rate-zone minutes), recent workout log, and
+// connected devices, none of which (unlike Google Fit) this server can
+// reach on its own since it's local to the phone. Only sent when the user
+// has "Share with paired coaches" enabled in the app.
 app.put("/api/user/health-sync", requireAuth, (req, res) => {
-  const { steps, activeCalories, latestHeartRate, restingHeartRate, sleepHoursLastNight, recentSessions } = req.body;
+  const {
+    steps, activeCalories, latestHeartRate, restingHeartRate, peakHeartRate, hrvMs,
+    sleepHoursLastNight, deepSleepHours, remSleepHours, lightSleepHours, heartZoneMinutes,
+    recentSessions, connectedDevices,
+  } = req.body;
   const profile = getUserProfile(req.user.uid);
 
+  const num = (v) => (Number.isFinite(v) ? v : undefined);
+  const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : undefined);
+
   profile.deviceHealth = {
-    steps: Number.isFinite(steps) ? steps : undefined,
-    activeCalories: Number.isFinite(activeCalories) ? activeCalories : undefined,
-    latestHeartRate: Number.isFinite(latestHeartRate) ? latestHeartRate : undefined,
-    restingHeartRate: Number.isFinite(restingHeartRate) ? restingHeartRate : undefined,
-    sleepHoursLastNight: Number.isFinite(sleepHoursLastNight) ? sleepHoursLastNight : undefined,
+    steps: num(steps),
+    activeCalories: num(activeCalories),
+    latestHeartRate: num(latestHeartRate),
+    restingHeartRate: num(restingHeartRate),
+    peakHeartRate: num(peakHeartRate),
+    hrvMs: num(hrvMs),
+    sleepHoursLastNight: num(sleepHoursLastNight),
+    deepSleepHours: num(deepSleepHours),
+    remSleepHours: num(remSleepHours),
+    lightSleepHours: num(lightSleepHours),
+    heartZoneMinutes: (heartZoneMinutes && typeof heartZoneMinutes === "object" && !Array.isArray(heartZoneMinutes))
+      ? heartZoneMinutes
+      : undefined,
     fetchedAt: Date.now(),
   };
 
   if (Array.isArray(recentSessions)) {
-    profile.recentSessions = recentSessions.slice(0, 10).map((s) => ({
-      name: typeof s.name === "string" ? s.name.slice(0, 80) : "Session",
-      elapsedMin: Number.isFinite(s.elapsedMin) ? s.elapsedMin : 0,
-      kcal: Number.isFinite(s.kcal) ? s.kcal : 0,
-      savedAt: Number.isFinite(s.savedAt) ? s.savedAt : Date.now(),
-    }));
+    profile.recentSessions = recentSessions
+      .filter((s) => s && typeof s === "object")
+      .slice(0, 10)
+      .map((s) => ({
+        name: str(s.name, 80) || "Session",
+        kind: str(s.kind, 20),
+        type: str(s.type, 20),
+        elapsedMin: num(s.elapsedMin) ?? 0,
+        kcal: num(s.kcal) ?? 0,
+        savedAt: num(s.savedAt) ?? Date.now(),
+        hr: num(s.hr),
+        distanceKm: num(s.distanceKm),
+        steps: num(s.steps),
+        pace: str(s.pace, 20),
+        sets: num(s.sets),
+        feel: num(s.feel),
+        notes: str(s.notes, 300),
+        completed: num(s.completed),
+        total: num(s.total),
+      }));
+  }
+
+  if (Array.isArray(connectedDevices)) {
+    profile.connectedDevices = connectedDevices
+      .filter((d) => d && typeof d === "object")
+      .slice(0, 20)
+      .map((d) => ({ name: str(d.name, 60) || "Device", kind: str(d.kind, 30) }));
   }
 
   setUserProfile(req.user.uid, profile);
