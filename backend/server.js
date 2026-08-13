@@ -1008,6 +1008,75 @@ app.get("/api/admin/conversations/:id/messages", requireAdmin, (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
+// NUDGES -- admin-authored notifications for the mHealth mobile app.
+// This server has no way to push to a phone that isn't listening, so the
+// app polls GET /api/user/nudges/pending (on launch/resume and
+// periodically while open) and shows whatever it finds as a local
+// notification. "Send to all" fans out to one row per recipient up front
+// so each user's delivery status is tracked independently.
+// ══════════════════════════════════════════════════════════════════════
+
+app.post("/api/admin/nudges", requireAdmin, (req, res) => {
+  const { userId, title, body } = req.body;
+  const titleStr = typeof title === "string" ? title.trim() : "";
+  const bodyStr = typeof body === "string" ? body.trim() : "";
+  if (!titleStr || !bodyStr) return res.status(400).json({ error: "title and body are required" });
+  if (titleStr.length > 100) return res.status(400).json({ error: "title must be 100 characters or fewer" });
+  if (bodyStr.length > 500) return res.status(400).json({ error: "body must be 500 characters or fewer" });
+
+  let recipientIds;
+  if (userId) {
+    const target = db.prepare("SELECT id FROM users WHERE id = ? AND role != 'admin'").get(userId);
+    if (!target) return res.status(404).json({ error: "User not found" });
+    recipientIds = [target.id];
+  } else {
+    recipientIds = db.prepare("SELECT id FROM users WHERE role != 'admin'").all().map((u) => u.id);
+  }
+  if (recipientIds.length === 0) return res.status(400).json({ error: "No recipients" });
+
+  const now = Date.now();
+  const insert = db.prepare(
+    "INSERT INTO nudges (id, user_id, title, body, created_at, created_by) VALUES (?,?,?,?,?,?)"
+  );
+  const insertMany = db.transaction((ids) => {
+    for (const id of ids) insert.run(uid(), id, titleStr, bodyStr, now, req.user.uid);
+  });
+  insertMany(recipientIds);
+
+  res.json({ message: "Sent", recipientCount: recipientIds.length });
+});
+
+app.get("/api/admin/nudges", requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT n.id, n.title, n.body, n.created_at, n.delivered_at, u.name AS user_name, u.email AS user_email
+    FROM nudges n JOIN users u ON u.id = n.user_id
+    ORDER BY n.created_at DESC
+    LIMIT 200
+  `).all();
+  res.json({ nudges: rows });
+});
+
+app.delete("/api/admin/nudges/:id", requireAdmin, (req, res) => {
+  db.prepare("DELETE FROM nudges WHERE id = ? AND delivered_at IS NULL").run(req.params.id);
+  res.json({ message: "Deleted" });
+});
+
+// Called by the mHealth app -- returns this user's undelivered nudges and
+// marks them delivered in the same request (fetch = acknowledge).
+app.get("/api/user/nudges/pending", requireAuth, (req, res) => {
+  const rows = db.prepare(
+    "SELECT id, title, body, created_at FROM nudges WHERE user_id = ? AND delivered_at IS NULL ORDER BY created_at ASC"
+  ).all(req.user.uid);
+  if (rows.length > 0) {
+    const now = Date.now();
+    const markDelivered = db.prepare("UPDATE nudges SET delivered_at = ? WHERE id = ?");
+    const markMany = db.transaction((ns) => { for (const n of ns) markDelivered.run(now, n.id); });
+    markMany(rows);
+  }
+  res.json({ nudges: rows });
+});
+
+// ══════════════════════════════════════════════════════════════════════
 // KNOWLEDGE BASE (admin only)
 // ══════════════════════════════════════════════════════════════════════
 

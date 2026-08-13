@@ -1234,6 +1234,11 @@ body {
   border: 1px solid rgba(243,139,168,0.3);
   color: var(--red);
 }
+.admin-alert-info {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
 
 .admin-section { margin-top: 28px; }
 

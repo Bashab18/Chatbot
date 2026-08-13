@@ -60,6 +60,24 @@ db.exec(`
     embedding  TEXT NOT NULL,
     FOREIGN KEY (doc_id) REFERENCES kb_documents(id) ON DELETE CASCADE
   );
+
+  -- Nudges an admin sends from the Admin Panel; the mHealth app polls
+  -- GET /api/user/nudges/pending and shows them as local notifications,
+  -- since this server has no way to push to a phone that isn't listening.
+  -- "Send to all" fans out to one row per recipient at creation time (not
+  -- a shared NULL-user_id row) so each user's delivered_at is independent.
+  CREATE TABLE IF NOT EXISTS nudges (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    created_by   TEXT,
+    delivered_at INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_nudges_user_pending ON nudges(user_id, delivered_at);
 `);
 
 // ── Migrations ────────────────────────────────────────────────────────────────
