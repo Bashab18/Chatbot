@@ -2056,9 +2056,10 @@ body {
 ═══════════════════════════════════════════════ */
 
 .profile-page {
-  min-height: 100vh;
+  height: 100vh;
   background: var(--bg);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .profile-header {
