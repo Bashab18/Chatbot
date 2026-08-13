@@ -243,7 +243,12 @@ app.get("/api/user/profile", requireAuth, (req, res) => {
 });
 
 app.put("/api/user/profile", requireAuth, (req, res) => {
-  const ALLOWED = ["age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies", "notes"];
+  const ALLOWED = [
+    "age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies", "notes",
+    // Per-user AI agent persona, set via the mHealth app's Settings > AI
+    // Agent screen -- aiVoiceId is an ElevenLabs voice_id, not a display name.
+    "aiName", "aiPersonality", "aiVoiceId",
+  ];
   const profile = getUserProfile(req.user.uid);
   for (const k of ALLOWED) {
     if (req.body[k] !== undefined) {
@@ -702,7 +707,19 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   }
 
   // ── Build system prompt ───────────────────────────────────────────
-  let fullSystem = systemPrompt + profileSection;
+  // Per-user persona overrides (name/personality), set via the mHealth
+  // app's AI Agent settings and synced through PUT /api/user/profile --
+  // takes priority over the admin's instance-wide persona below.
+  let personaPrefix = "";
+  if (userProfile.aiName) {
+    personaPrefix += `You are named "${userProfile.aiName}". Introduce yourself by this name and refer to yourself by it throughout the conversation.\n`;
+  }
+  if (userProfile.aiPersonality) {
+    personaPrefix += `Adopt a ${userProfile.aiPersonality.toLowerCase()} personality in how you communicate.\n`;
+  }
+  if (personaPrefix) personaPrefix += "\n";
+
+  let fullSystem = personaPrefix + systemPrompt + profileSection;
 
   if (hits.length > 0) {
     const contextText = hits.map((h) => `[Source: ${h.docName}]\n${h.text}`).join("\n\n---\n\n");
