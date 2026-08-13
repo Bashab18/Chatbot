@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -12,6 +12,121 @@ const FIELDS = [
   { key: "allergies",   label: "Allergies",             placeholder: "e.g. Penicillin, Peanuts",    type: "text" },
   { key: "goals",       label: "Health Goals",          placeholder: "e.g. Lose weight, manage stress", type: "text" },
 ];
+
+// Lets the user pick which ElevenLabs voice CIRA speaks with -- this used
+// to be admin-only (instance-wide); now each user chooses their own,
+// stored as profile.aiVoiceId and used as an override in ChatPage.
+function VoiceSection({ profile, setProfile, apiFetch }) {
+  const [voices, setVoices]           = useState([]);
+  const [loadingVoices, setLoadingVoices] = useState(true);
+  const [voiceError, setVoiceError]   = useState("");
+  const [voiceId, setVoiceId]         = useState(profile.aiVoiceId || "");
+  const [saving, setSaving]           = useState(false);
+  const [saveMsg, setSaveMsg]         = useState(null);
+  const [testState, setTestState]     = useState("idle"); // "idle" | "loading" | "playing"
+  const [testError, setTestError]     = useState("");
+  const testAudioRef                  = useRef(null);
+
+  useEffect(() => {
+    fetch("/api/tts/voices")
+      .then((r) => r.json())
+      .then((d) => { if (d.error) throw new Error(d.error); setVoices(d.voices || []); })
+      .catch((e) => setVoiceError(e.message))
+      .finally(() => setLoadingVoices(false));
+  }, []);
+
+  useEffect(() => { setVoiceId(profile.aiVoiceId || ""); }, [profile.aiVoiceId]);
+
+  async function handleTest() {
+    if (testAudioRef.current) {
+      testAudioRef.current.pause();
+      testAudioRef.current = null;
+      setTestState("idle");
+      return;
+    }
+    if (!voiceId || testState === "loading") return;
+    setTestState("loading"); setTestError("");
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Hello! This is a voice preview. How does this sound to you?", voiceId }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `TTS error ${res.status}`);
+      }
+      const blob  = await res.blob();
+      const url   = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      testAudioRef.current = audio;
+      setTestState("playing");
+      audio.play();
+      audio.onended = () => { URL.revokeObjectURL(url); testAudioRef.current = null; setTestState("idle"); };
+    } catch (err) {
+      setTestError(err.message);
+      setTestState("idle");
+    }
+  }
+
+  async function handleSaveVoice() {
+    setSaving(true); setSaveMsg(null);
+    try {
+      const data = await apiFetch("/api/user/profile", { method: "PUT", body: JSON.stringify({ aiVoiceId: voiceId }) });
+      setProfile(data.profile);
+      setSaveMsg({ type: "success", text: "Voice saved." });
+      setTimeout(() => setSaveMsg(null), 3000);
+    } catch (err) {
+      setSaveMsg({ type: "error", text: err.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="profile-card">
+      <h2 className="profile-section-title">Voice</h2>
+      <p className="profile-section-desc">
+        Pick the voice CIRA uses to read its replies aloud to you.
+      </p>
+
+      {voiceError ? (
+        <p className="profile-error">⚠ {voiceError}</p>
+      ) : loadingVoices ? (
+        <p className="slider-hint">Loading voices…</p>
+      ) : (
+        <select className="settings-select" value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
+          <option value="">Use the app's default voice</option>
+          {voices.map((v) => (
+            <option key={v.voice_id} value={v.voice_id}>
+              {v.name}{v.labels?.accent ? ` · ${v.labels.accent}` : ""}
+            </option>
+          ))}
+        </select>
+      )}
+
+      <div className="tts-test-row" style={{ marginTop: 12 }}>
+        <button
+          type="button"
+          className={`tts-test-btn${testState !== "idle" ? " active" : ""}`}
+          onClick={handleTest}
+          disabled={testState === "loading" || !voiceId}
+        >
+          {testState === "loading" ? "Loading…" : testState === "playing" ? "Stop" : "Test Voice"}
+        </button>
+        {testError && <span className="tts-test-error">⚠ {testError}</span>}
+      </div>
+
+      {saveMsg && <div className={`profile-alert profile-alert-${saveMsg.type}`}>{saveMsg.text}</div>}
+
+      <div className="profile-actions" style={{ marginTop: 12 }}>
+        <button className="btn-primary" type="button" onClick={handleSaveVoice} disabled={saving}>
+          {saving ? "Saving…" : "Save Voice"}
+        </button>
+      </div>
+    </section>
+  );
+}
 
 function formatAge(ts) {
   if (!ts) return "";
@@ -261,6 +376,9 @@ export default function ProfilePage() {
             </div>
           </form>
         </section>
+
+        {/* ── Voice ────────────────────────────────────────────────── */}
+        <VoiceSection profile={profile} setProfile={setProfile} apiFetch={apiFetch} />
 
         {/* ── AI Memory ────────────────────────────────────────────── */}
         <section className="profile-card">

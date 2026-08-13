@@ -160,23 +160,9 @@ function useSourceValidation(model, webSearchWeight) {
 }
 
 function TTSSection({ s, set }) {
-  const [voices, setVoices]         = useState([]);
-  const [loadingVoices, setLoading] = useState(false);
-  const [voiceError, setVoiceError] = useState("");
   const [testState, setTestState]   = useState("idle"); // "idle" | "loading" | "playing"
   const [testError, setTestError]   = useState("");
   const testAudioRef                = useRef(null);
-  const { getToken } = useAuth();
-
-  useEffect(() => {
-    if (!s.ttsEnabled) return;
-    setLoading(true); setVoiceError("");
-    fetch("/api/tts/voices", { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setVoices(d.voices || []); })
-      .catch((e) => setVoiceError(e.message))
-      .finally(() => setLoading(false));
-  }, [s.ttsEnabled]);
 
   async function handleTest() {
     // If audio is playing, stop it
@@ -241,25 +227,6 @@ function TTSSection({ s, set }) {
 
       {s.ttsEnabled && (
         <div className="tts-fields">
-          {/* Voice */}
-          <div className="tts-field">
-            <label className="tts-field-label">Voice</label>
-            {voiceError ? (
-              <p className="tts-error">⚠ {voiceError} — check ELEVENLABS_API_KEY in backend .env</p>
-            ) : loadingVoices ? (
-              <p className="slider-hint">Loading voices…</p>
-            ) : (
-              <select className="settings-select" value={s.ttsVoiceId}
-                onChange={(e) => set("ttsVoiceId", e.target.value)}>
-                {voices.map((v) => (
-                  <option key={v.voice_id} value={v.voice_id}>
-                    {v.name}{v.labels?.accent ? ` · ${v.labels.accent}` : ""}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
           {/* TTS Model */}
           <div className="tts-field">
             <label className="tts-field-label">Model</label>
@@ -483,7 +450,7 @@ export default function SettingsPage() {
         </Card>
 
         {/* ── TTS ─────────────────────────────────────────── */}
-        <Card title="Voice (ElevenLabs)" desc="Text-to-speech settings applied to all user chat sessions.">
+        <Card title="Voice Engine (ElevenLabs)" desc="Audio engine and quality settings. Users now pick their own voice from their Profile page -- this is the fallback voice for anyone who hasn't chosen one.">
           <TTSSection s={s} set={set} />
         </Card>
 
