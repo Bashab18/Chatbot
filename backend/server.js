@@ -899,10 +899,10 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
   res.json({ users });
 });
 
-// Full per-user detail for the admin Users page -- includes profile fields
-// the user has filled in, their AI persona, and (if they opted in via the
-// mHealth app's "Share with paired coaches" setting) the on-device Health
-// Connect/HealthKit snapshot, recent workouts, and any Google Fit data.
+// Full per-user detail for the admin Users page -- profile fields the user
+// filled in, their AI persona, phone health data + recent workouts (if
+// shared via the mHealth app's "Share with paired coaches" setting), any
+// Google Fit data, AI-learned memories, and a chat activity summary.
 app.get("/api/admin/users/:id", requireAdmin, (req, res) => {
   const row = db.prepare(
     "SELECT id, email, name, role, login_count, last_login, note, created_at, profile FROM users WHERE id = ?"
@@ -912,7 +912,25 @@ app.get("/api/admin/users/:id", requireAdmin, (req, res) => {
   try { parsed = JSON.parse(row.profile || "{}"); } catch { /* corrupt/empty -- treat as no profile */ }
   const { googleFitTokens: _tokens, ...profile } = parsed;
   const { profile: _raw, ...user } = row;
-  res.json({ user, profile });
+
+  const memories = getMemories(req.params.id);
+
+  const conversationCount = db.prepare(
+    "SELECT COUNT(*) AS c FROM conversations WHERE user_id = ?"
+  ).get(req.params.id).c;
+  const messageCount = db.prepare(
+    "SELECT COUNT(*) AS c FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = ?"
+  ).get(req.params.id).c;
+  const recentConversations = db.prepare(
+    "SELECT id, title, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 5"
+  ).all(req.params.id);
+
+  res.json({
+    user,
+    profile,
+    memories,
+    activity: { conversationCount, messageCount, recentConversations },
+  });
 });
 
 app.patch("/api/admin/users/:id", requireAdmin, (req, res) => {

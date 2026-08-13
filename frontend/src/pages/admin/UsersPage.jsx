@@ -19,6 +19,10 @@ function formatDate(ts) {
   return new Date(ts).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function formatDateTime(ts) {
+  return new Date(ts).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
 function Row({ label, value }) {
   if (value === undefined || value === null || value === "") return null;
   return (
@@ -29,12 +33,31 @@ function Row({ label, value }) {
   );
 }
 
-// Full per-user detail -- profile fields the user filled in, their AI
-// persona, and (if shared) the on-device health snapshot and recent
-// workouts synced from the companion mHealth app.
+function SectionTitle({ children }) {
+  return <h3 className="settings-section-title" style={{ marginTop: 18, marginBottom: 6 }}>{children}</h3>;
+}
+
+function StatCard({ value, label }) {
+  return (
+    <div className="fit-data-card">
+      <div>
+        <div className="fit-metric-value">{value}</div>
+        <div className="fit-metric-label">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+const ROLE_BADGE = { admin: "Admin", user: "User" };
+
+// Full per-user detail -- account/engagement stats, profile fields the user
+// filled in, their AI persona (with the voice resolved to a readable name),
+// AI-learned memories, chat activity, and (if shared) the on-device health
+// snapshot / recent workouts synced from the companion mHealth app.
 function UserDetailModal({ userId, onClose, getToken }) {
-  const [data, setData]   = useState(null);
-  const [error, setError] = useState("");
+  const [data, setData]     = useState(null);
+  const [error, setError]   = useState("");
+  const [voices, setVoices] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,27 +69,54 @@ function UserDetailModal({ userId, onClose, getToken }) {
         setData(d);
       })
       .catch((e) => { if (!cancelled) setError(e.message); });
+    fetch("/api/tts/voices")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d.voices) setVoices(d.voices); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [userId, getToken]);
 
-  const p   = data?.profile || {};
-  const dh  = p.deviceHealth;
-  const fit = p.fitnessSnapshot;
+  const p    = data?.profile || {};
+  const u    = data?.user || {};
+  const mem  = data?.memories || [];
+  const act  = data?.activity;
+  const dh   = p.deviceHealth;
+  const fit  = p.fitnessSnapshot;
   const hasPersonal = p.age || p.gender || p.height || p.weight || p.conditions || p.medications || p.allergies || p.goals || p.notes;
   const hasPersona  = p.aiName || p.aiPersonality || p.aiVoiceId;
+  const voiceName   = p.aiVoiceId ? voices.find((v) => v.voice_id === p.aiVoiceId)?.name : null;
+
+  const workoutTotals = p.recentSessions?.length
+    ? p.recentSessions.reduce((a, s) => ({ min: a.min + (s.elapsedMin || 0), kcal: a.kcal + (s.kcal || 0) }), { min: 0, kcal: 0 })
+    : null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: "92%", maxHeight: "85vh", overflowY: "auto" }}>
-        <h2 className="profile-section-title">{data?.user?.name || "User"}</h2>
-        <p className="profile-section-desc" style={{ marginBottom: 16 }}>{data?.user?.email}</p>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: "92%", maxHeight: "85vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <h2 className="profile-section-title" style={{ marginBottom: 2 }}>{u.name || "User"}</h2>
+            <p className="profile-section-desc" style={{ margin: 0 }}>{u.email}</p>
+          </div>
+          {u.role && <span className="model-tag">{ROLE_BADGE[u.role] ?? u.role}</span>}
+        </div>
 
         {error && <p className="profile-error">⚠ {error}</p>}
-        {!data && !error && <p className="slider-hint">Loading…</p>}
+        {!data && !error && <p className="slider-hint" style={{ marginTop: 16 }}>Loading…</p>}
 
         {data && (
           <>
-            <h3 className="settings-section-title">Personal Information</h3>
+            <SectionTitle>Account</SectionTitle>
+            <div className="fit-data-grid">
+              <StatCard value={act?.conversationCount ?? 0} label="Conversations" />
+              <StatCard value={act?.messageCount ?? 0} label="Messages sent" />
+              <StatCard value={u.login_count ?? 0} label="Logins" />
+            </div>
+            <Row label="Joined" value={formatDate(u.created_at)} />
+            <Row label="Last login" value={timeAgo(u.last_login)} />
+            {u.note && <Row label="Admin note" value={u.note} />}
+
+            <SectionTitle>Personal Information</SectionTitle>
             {hasPersonal ? (
               <>
                 <Row label="Age" value={p.age} />
@@ -81,30 +131,51 @@ function UserDetailModal({ userId, onClose, getToken }) {
               </>
             ) : <p className="slider-hint">Not shared.</p>}
 
-            <h3 className="settings-section-title" style={{ marginTop: 16 }}>AI Persona</h3>
+            <SectionTitle>AI Persona</SectionTitle>
             {hasPersona ? (
               <>
                 <Row label="Name" value={p.aiName} />
                 <Row label="Personality" value={p.aiPersonality} />
-                <Row label="Voice ID" value={p.aiVoiceId} />
+                <Row label="Voice" value={voiceName || p.aiVoiceId} />
               </>
             ) : <p className="slider-hint">Using instance defaults.</p>}
 
-            <h3 className="settings-section-title" style={{ marginTop: 16 }}>Phone Health Data</h3>
+            <SectionTitle>AI Memory</SectionTitle>
+            {mem.length > 0 ? (
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {mem.map((m) => (
+                  <li key={m.id} style={{ padding: "3px 0" }}>
+                    {m.text}
+                    <span style={{ opacity: 0.5, fontSize: 12 }}> — {m.source === "auto" ? "learned" : "manual"}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="slider-hint">No facts learned yet.</p>}
+
+            <SectionTitle>Phone Health Data</SectionTitle>
             {dh ? (
               <>
-                <Row label="Steps" value={dh.steps?.toLocaleString()} />
-                <Row label="Active calories" value={dh.activeCalories} />
-                <Row label="Latest heart rate" value={dh.latestHeartRate && `${dh.latestHeartRate} bpm`} />
-                <Row label="Resting heart rate" value={dh.restingHeartRate && `${dh.restingHeartRate} bpm`} />
-                <Row label="Sleep last night" value={dh.sleepHoursLastNight && `${dh.sleepHoursLastNight} h`} />
-                <Row label="Synced" value={dh.fetchedAt && new Date(dh.fetchedAt).toLocaleString()} />
+                <div className="fit-data-grid">
+                  {dh.steps != null && <StatCard value={dh.steps.toLocaleString()} label="Steps" />}
+                  {dh.activeCalories != null && <StatCard value={dh.activeCalories} label="Active kcal" />}
+                  {dh.latestHeartRate != null && <StatCard value={`${dh.latestHeartRate} bpm`} label="Latest HR" />}
+                  {dh.restingHeartRate != null && <StatCard value={`${dh.restingHeartRate} bpm`} label="Resting HR" />}
+                  {dh.sleepHoursLastNight != null && <StatCard value={`${dh.sleepHoursLastNight} h`} label="Sleep last night" />}
+                </div>
+                {dh.fetchedAt && <p className="fit-fetched-at">Last synced: {formatDateTime(dh.fetchedAt)}</p>}
               </>
             ) : <p className="slider-hint">Not shared -- user hasn't enabled "Share with paired coaches" in the mHealth app.</p>}
 
             {p.recentSessions?.length > 0 && (
               <>
-                <h3 className="settings-section-title" style={{ marginTop: 16 }}>Recent Workouts (from phone)</h3>
+                <SectionTitle>Recent Workouts (from phone)</SectionTitle>
+                {workoutTotals && (
+                  <div className="fit-data-grid" style={{ marginBottom: 8 }}>
+                    <StatCard value={p.recentSessions.length} label="Logged" />
+                    <StatCard value={`${workoutTotals.min} min`} label="Total time" />
+                    <StatCard value={`${workoutTotals.kcal} kcal`} label="Total burned" />
+                  </div>
+                )}
                 {p.recentSessions.map((s, i) => (
                   <Row key={i} label={s.name} value={`${s.elapsedMin} min · ${s.kcal} kcal · ${new Date(s.savedAt).toLocaleDateString()}`} />
                 ))}
@@ -113,12 +184,21 @@ function UserDetailModal({ userId, onClose, getToken }) {
 
             {fit && (
               <>
-                <h3 className="settings-section-title" style={{ marginTop: 16 }}>Google Fit</h3>
-                <Row label="Steps today" value={fit.todaySteps?.toLocaleString()} />
-                <Row label="Avg heart rate (7d)" value={fit.avgHeartRate && `${fit.avgHeartRate} bpm`} />
-                <Row label="Weight" value={fit.weight && `${fit.weight} kg`} />
+                <SectionTitle>Google Fit</SectionTitle>
+                <div className="fit-data-grid">
+                  {fit.todaySteps != null && <StatCard value={fit.todaySteps.toLocaleString()} label="Steps today" />}
+                  {fit.avgHeartRate != null && <StatCard value={`${fit.avgHeartRate} bpm`} label="Avg HR (7d)" />}
+                  {fit.weight != null && <StatCard value={`${fit.weight} kg`} label="Weight" />}
+                </div>
               </>
             )}
+
+            <SectionTitle>Recent Conversations</SectionTitle>
+            {act?.recentConversations?.length > 0 ? (
+              act.recentConversations.map((c) => (
+                <Row key={c.id} label={c.title} value={timeAgo(c.updated_at)} />
+              ))
+            ) : <p className="slider-hint">No conversations yet.</p>}
           </>
         )}
 
