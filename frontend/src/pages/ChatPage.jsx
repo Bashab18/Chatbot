@@ -55,7 +55,10 @@ export default function ChatPage() {
   const [messages, setMessages]           = useState([]);
   const [input, setInput]                 = useState("");
   const [loading, setLoading]             = useState(false);
-  const [sidebarOpen, setSidebarOpen]     = useState(true);
+  // Starts closed on narrow/mobile viewports (matches the CSS breakpoint
+  // below) -- the sidebar sits inline, not as an overlay, so leaving it
+  // open by default on a phone squeezes the actual chat into a sliver.
+  const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth > 640);
   const [speakingId, setSpeakingId]       = useState(null);
   const [editingId, setEditingId]         = useState(null);
   const [editTitle, setEditTitle]         = useState("");
