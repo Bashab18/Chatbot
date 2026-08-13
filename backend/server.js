@@ -256,6 +256,36 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
   res.json({ profile: safe });
 });
 
+// Pushed from the mHealth mobile app -- its on-device Health Connect /
+// HealthKit data and recent workout log, which (unlike Google Fit) this
+// server can't reach on its own since it's local to the phone. Only sent
+// when the user has "Share with paired coaches" enabled in the app.
+app.put("/api/user/health-sync", requireAuth, (req, res) => {
+  const { steps, activeCalories, latestHeartRate, restingHeartRate, sleepHoursLastNight, recentSessions } = req.body;
+  const profile = getUserProfile(req.user.uid);
+
+  profile.deviceHealth = {
+    steps: Number.isFinite(steps) ? steps : undefined,
+    activeCalories: Number.isFinite(activeCalories) ? activeCalories : undefined,
+    latestHeartRate: Number.isFinite(latestHeartRate) ? latestHeartRate : undefined,
+    restingHeartRate: Number.isFinite(restingHeartRate) ? restingHeartRate : undefined,
+    sleepHoursLastNight: Number.isFinite(sleepHoursLastNight) ? sleepHoursLastNight : undefined,
+    fetchedAt: Date.now(),
+  };
+
+  if (Array.isArray(recentSessions)) {
+    profile.recentSessions = recentSessions.slice(0, 10).map((s) => ({
+      name: typeof s.name === "string" ? s.name.slice(0, 80) : "Session",
+      elapsedMin: Number.isFinite(s.elapsedMin) ? s.elapsedMin : 0,
+      kcal: Number.isFinite(s.kcal) ? s.kcal : 0,
+      savedAt: Number.isFinite(s.savedAt) ? s.savedAt : Date.now(),
+    }));
+  }
+
+  setUserProfile(req.user.uid, profile);
+  res.json({ message: "Synced" });
+});
+
 // ══════════════════════════════════════════════════════════════════════
 // AI MEMORY
 // ══════════════════════════════════════════════════════════════════════
@@ -621,6 +651,27 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       weight && `Weight: ${weight} kg`,
     ].filter(Boolean);
     if (fitLines.length > 0) profileSection += `\n\nRecent Fitness Data (Google Fit):\n${fitLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  // Synced from the mHealth app's on-device Health Connect / HealthKit data
+  // (see PUT /api/user/health-sync) -- only present if the user opted in.
+  if (userProfile.deviceHealth) {
+    const { steps, activeCalories, latestHeartRate, restingHeartRate, sleepHoursLastNight } = userProfile.deviceHealth;
+    const deviceLines = [
+      steps && `Steps today: ${steps.toLocaleString()}`,
+      activeCalories && `Active calories today: ${activeCalories}`,
+      latestHeartRate && `Latest heart rate: ${latestHeartRate} bpm`,
+      restingHeartRate && `Resting heart rate: ${restingHeartRate} bpm`,
+      sleepHoursLastNight && `Sleep last night: ${sleepHoursLastNight} h`,
+    ].filter(Boolean);
+    if (deviceLines.length > 0) profileSection += `\n\nRecent Health Data (from phone):\n${deviceLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  if (userProfile.recentSessions?.length > 0) {
+    const sessionLines = userProfile.recentSessions
+      .slice(0, 5)
+      .map((s) => `${s.name} — ${s.elapsedMin} min, ${s.kcal} kcal (${new Date(s.savedAt).toLocaleDateString()})`);
+    profileSection += `\n\nRecent Workouts (from phone):\n${sessionLines.map((l) => `- ${l}`).join("\n")}`;
   }
 
   // ── KB retrieval ──────────────────────────────────────────────────
