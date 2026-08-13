@@ -38,7 +38,7 @@ function uid() { return crypto.randomUUID(); }
 // ── Bot settings helpers ──────────────────────────────────────────────
 const DEFAULT_BOT = {
   // AI
-  model: "gemini-3-flash-preview",
+  model: "gemini-3.5-flash",
   systemPrompt: "You are a friendly and supportive fitness assistant designed specifically for older adults. You provide safe, practical guidance on exercise, physical activity, balance, flexibility, nutrition, and healthy ageing. Always use clear, simple language. Encourage users to stay active while reminding them to consult their doctor or physiotherapist before starting new exercises, especially if they have health conditions.",
   style: "balanced",   // precise | balanced | creative
   // RAG
@@ -66,6 +66,11 @@ function getBotSettings() {
     const saved = JSON.parse(row.value);
     // Gemma 3 is not available on the standard API key; fall back to default
     if (saved.model && /^gemma-3/.test(saved.model)) saved.model = DEFAULT_BOT.model;
+    // Retired model IDs that no longer exist for this API key -- fall back
+    // rather than 404ing on every chat message until an admin notices.
+    if (saved.model && ["gemini-3-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro"].includes(saved.model)) {
+      saved.model = DEFAULT_BOT.model;
+    }
     // ElevenLabs retired these TTS models -- every synthesis call using them
     // 400s, silently breaking voice for everyone until an admin notices.
     if (saved.ttsModelId && ["eleven_monolingual_v1", "eleven_multilingual_v1"].includes(saved.ttsModelId)) {
@@ -370,7 +375,7 @@ ${transcript}`;
 
     const { model: botModel } = getBotSettings();
     // Gemma models don't support structured output — always use a Gemini model
-    const safeModel = botModel.startsWith("gemma-") ? "gemini-1.5-flash" : botModel;
+    const safeModel = botModel.startsWith("gemma-") ? "gemini-2.5-flash-lite" : botModel;
 
     // Force valid JSON output so we never get markdown fences or prose
     const aiModel = genAI.getGenerativeModel({
@@ -804,7 +809,7 @@ app.post("/api/title", requireAuth, async (req, res) => {
   const { message, conversationId } = req.body;
   if (!message) return res.status(400).json({ error: "message is required" });
   try {
-    const m = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const m = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
     const chat = m.startChat({ history: [] });
     const result = await chat.sendMessage(
       `Generate a concise 4-6 word title for a conversation that starts with this message. ` +
