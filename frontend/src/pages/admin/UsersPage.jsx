@@ -19,6 +19,117 @@ function formatDate(ts) {
   return new Date(ts).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function Row({ label, value }) {
+  if (value === undefined || value === null || value === "") return null;
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid rgba(128,128,128,0.15)" }}>
+      <span style={{ opacity: 0.65 }}>{label}</span>
+      <span style={{ textAlign: "right" }}>{value}</span>
+    </div>
+  );
+}
+
+// Full per-user detail -- profile fields the user filled in, their AI
+// persona, and (if shared) the on-device health snapshot and recent
+// workouts synced from the companion mHealth app.
+function UserDetailModal({ userId, onClose, getToken }) {
+  const [data, setData]   = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/admin/users/${userId}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d.error) throw new Error(d.error);
+        setData(d);
+      })
+      .catch((e) => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [userId, getToken]);
+
+  const p   = data?.profile || {};
+  const dh  = p.deviceHealth;
+  const fit = p.fitnessSnapshot;
+  const hasPersonal = p.age || p.gender || p.height || p.weight || p.conditions || p.medications || p.allergies || p.goals || p.notes;
+  const hasPersona  = p.aiName || p.aiPersonality || p.aiVoiceId;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: "92%", maxHeight: "85vh", overflowY: "auto" }}>
+        <h2 className="profile-section-title">{data?.user?.name || "User"}</h2>
+        <p className="profile-section-desc" style={{ marginBottom: 16 }}>{data?.user?.email}</p>
+
+        {error && <p className="profile-error">⚠ {error}</p>}
+        {!data && !error && <p className="slider-hint">Loading…</p>}
+
+        {data && (
+          <>
+            <h3 className="settings-section-title">Personal Information</h3>
+            {hasPersonal ? (
+              <>
+                <Row label="Age" value={p.age} />
+                <Row label="Gender" value={p.gender} />
+                <Row label="Height" value={p.height} />
+                <Row label="Weight" value={p.weight} />
+                <Row label="Conditions" value={p.conditions} />
+                <Row label="Medications" value={p.medications} />
+                <Row label="Allergies" value={p.allergies} />
+                <Row label="Goals" value={p.goals} />
+                <Row label="Notes" value={p.notes} />
+              </>
+            ) : <p className="slider-hint">Not shared.</p>}
+
+            <h3 className="settings-section-title" style={{ marginTop: 16 }}>AI Persona</h3>
+            {hasPersona ? (
+              <>
+                <Row label="Name" value={p.aiName} />
+                <Row label="Personality" value={p.aiPersonality} />
+                <Row label="Voice ID" value={p.aiVoiceId} />
+              </>
+            ) : <p className="slider-hint">Using instance defaults.</p>}
+
+            <h3 className="settings-section-title" style={{ marginTop: 16 }}>Phone Health Data</h3>
+            {dh ? (
+              <>
+                <Row label="Steps" value={dh.steps?.toLocaleString()} />
+                <Row label="Active calories" value={dh.activeCalories} />
+                <Row label="Latest heart rate" value={dh.latestHeartRate && `${dh.latestHeartRate} bpm`} />
+                <Row label="Resting heart rate" value={dh.restingHeartRate && `${dh.restingHeartRate} bpm`} />
+                <Row label="Sleep last night" value={dh.sleepHoursLastNight && `${dh.sleepHoursLastNight} h`} />
+                <Row label="Synced" value={dh.fetchedAt && new Date(dh.fetchedAt).toLocaleString()} />
+              </>
+            ) : <p className="slider-hint">Not shared -- user hasn't enabled "Share with paired coaches" in the mHealth app.</p>}
+
+            {p.recentSessions?.length > 0 && (
+              <>
+                <h3 className="settings-section-title" style={{ marginTop: 16 }}>Recent Workouts (from phone)</h3>
+                {p.recentSessions.map((s, i) => (
+                  <Row key={i} label={s.name} value={`${s.elapsedMin} min · ${s.kcal} kcal · ${new Date(s.savedAt).toLocaleDateString()}`} />
+                ))}
+              </>
+            )}
+
+            {fit && (
+              <>
+                <h3 className="settings-section-title" style={{ marginTop: 16 }}>Google Fit</h3>
+                <Row label="Steps today" value={fit.todaySteps?.toLocaleString()} />
+                <Row label="Avg heart rate (7d)" value={fit.avgHeartRate && `${fit.avgHeartRate} bpm`} />
+                <Row label="Weight" value={fit.weight && `${fit.weight} kg`} />
+              </>
+            )}
+          </>
+        )}
+
+        <div className="modal-actions" style={{ marginTop: 20 }}>
+          <button className="btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function UsersPage() {
   const { getToken } = useAuth();
   const [users, setUsers]         = useState([]);
@@ -26,6 +137,7 @@ export default function UsersPage() {
   const [editNote, setEditNote]   = useState({}); // uid → note text
   const [saving, setSaving]       = useState({}); // uid → bool
   const [message, setMessage]     = useState(null);
+  const [detailUserId, setDetailUserId] = useState(null);
 
   async function loadUsers() {
     try {
@@ -65,7 +177,7 @@ export default function UsersPage() {
     <div className="admin-page">
       <div className="admin-page-header">
         <h1>Users</h1>
-        <p>Manage all registered users</p>
+        <p>Manage all registered users — click a user to view their profile, AI persona, and any phone health data they've shared</p>
       </div>
 
       {message && (
@@ -98,7 +210,12 @@ export default function UsersPage() {
               {users.map((u) => (
                 <tr key={u.id}>
                   <td>
-                    <div className="user-cell">
+                    <div
+                      className="user-cell"
+                      style={{ cursor: "pointer" }}
+                      onClick={() => setDetailUserId(u.id)}
+                      title="View details"
+                    >
                       <div className="user-avatar-sm">{u.name?.[0]?.toUpperCase() ?? "?"}</div>
                       <div>
                         <span className="user-cell-name">{u.name ?? "—"}</span>
@@ -132,6 +249,14 @@ export default function UsersPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {detailUserId && (
+        <UserDetailModal
+          userId={detailUserId}
+          onClose={() => setDetailUserId(null)}
+          getToken={getToken}
+        />
       )}
     </div>
   );

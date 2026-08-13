@@ -899,6 +899,22 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
   res.json({ users });
 });
 
+// Full per-user detail for the admin Users page -- includes profile fields
+// the user has filled in, their AI persona, and (if they opted in via the
+// mHealth app's "Share with paired coaches" setting) the on-device Health
+// Connect/HealthKit snapshot, recent workouts, and any Google Fit data.
+app.get("/api/admin/users/:id", requireAdmin, (req, res) => {
+  const row = db.prepare(
+    "SELECT id, email, name, role, login_count, last_login, note, created_at, profile FROM users WHERE id = ?"
+  ).get(req.params.id);
+  if (!row) return res.status(404).json({ error: "User not found" });
+  let parsed = {};
+  try { parsed = JSON.parse(row.profile || "{}"); } catch { /* corrupt/empty -- treat as no profile */ }
+  const { googleFitTokens: _tokens, ...profile } = parsed;
+  const { profile: _raw, ...user } = row;
+  res.json({ user, profile });
+});
+
 app.patch("/api/admin/users/:id", requireAdmin, (req, res) => {
   const { note } = req.body;
   if (note === undefined) return res.status(400).json({ error: "note is required" });
