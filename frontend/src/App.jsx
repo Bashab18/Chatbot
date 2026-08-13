@@ -10,6 +10,7 @@ import KnowledgePage from "./pages/admin/KnowledgePage";
 import SettingsPage  from "./pages/admin/SettingsPage";
 import UsersPage     from "./pages/admin/UsersPage";
 import ChatHistoryPage from "./pages/admin/ChatHistoryPage";
+import NudgesPage    from "./pages/admin/NudgesPage";
 import "./App.css";
 
 function ProtectedRoute({ children, requireRole }) {
@@ -83,6 +84,7 @@ export default function App() {
             <Route path="knowledge"   element={<KnowledgePage />} />
             <Route path="settings"    element={<SettingsPage />} />
             <Route path="users"       element={<UsersPage />} />
+            <Route path="nudges"      element={<NudgesPage />} />
             <Route path="history"     element={<ChatHistoryPage />} />
           </Route>
 
