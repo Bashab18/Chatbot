@@ -3,17 +3,29 @@ import { useAuth } from "../../context/AuthContext";
 
 const MODEL_GROUPS = [
   {
+    gen: "Gemini 3.6",
+    models: [
+      { id: "gemini-3.6-flash", label: "3.6 Flash", desc: "Latest generation — fast and capable", tag: "Newest" },
+    ],
+  },
+  {
+    gen: "Gemini 3.5",
+    models: [
+      { id: "gemini-3.5-flash",      label: "3.5 Flash",      desc: "Fast and capable, best price-performance", tag: "Recommended" },
+      { id: "gemini-3.5-flash-lite", label: "3.5 Flash Lite", desc: "Lightweight and cost-efficient" },
+    ],
+  },
+  {
     gen: "Gemini 3.1",
     models: [
-      { id: "gemini-3.1-pro-preview",        label: "3.1 Pro",        desc: "Latest flagship — advanced reasoning & agentic tasks", tag: "Newest" },
-      { id: "gemini-3.1-flash-lite-preview",  label: "3.1 Flash Lite", desc: "Ultra-fast, cost-efficient 3.1 model" },
+      { id: "gemini-3.1-pro-preview",  label: "3.1 Pro",        desc: "Advanced reasoning & agentic tasks", tag: "Smartest" },
+      { id: "gemini-3.1-flash-lite",   label: "3.1 Flash Lite", desc: "Ultra-fast, cost-efficient" },
     ],
   },
   {
     gen: "Gemini 3",
     models: [
-      { id: "gemini-3-pro-preview",   label: "3 Pro",   desc: "Powerful reasoning and multimodal understanding",  tag: "Smartest" },
-      { id: "gemini-3-flash-preview", label: "3 Flash", desc: "Fast and capable, best price-performance",         tag: "Recommended" },
+      { id: "gemini-3-flash-preview", label: "3 Flash", desc: "Fast and capable, previous generation" },
     ],
   },
   {
@@ -21,14 +33,7 @@ const MODEL_GROUPS = [
     models: [
       { id: "gemini-2.5-pro",        label: "2.5 Pro",        desc: "Deep reasoning & thinking" },
       { id: "gemini-2.5-flash",      label: "2.5 Flash",      desc: "Adaptive thinking, balanced speed" },
-      { id: "gemini-2.5-flash-lite", label: "2.5 Flash Lite", desc: "Lightweight and cost-efficient",              tag: "Lightest" },
-    ],
-  },
-  {
-    gen: "Gemini 2.0",
-    models: [
-      { id: "gemini-2.0-flash",      label: "2.0 Flash",      desc: "Multimodal speed and capability" },
-      { id: "gemini-2.0-flash-lite", label: "2.0 Flash Lite", desc: "Most cost-efficient 2.0 model" },
+      { id: "gemini-2.5-flash-lite", label: "2.5 Flash Lite", desc: "Lightweight and cost-efficient", tag: "Lightest" },
     ],
   },
   {
@@ -54,7 +59,7 @@ const TTS_MODELS = [
 ];
 
 const DEFAULTS = {
-  model:              "gemini-3-flash-preview",
+  model:              "gemini-3.5-flash",
   systemPrompt:       "",
   style:              "balanced",
   ragTopK:            5,
