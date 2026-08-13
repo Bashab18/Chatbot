@@ -25,8 +25,19 @@ export function AuthProvider({ children }) {
   const [user, setUser]     = useState(null);   // { id, email, name, role }
   const [loading, setLoading] = useState(true);
 
-  // On mount: validate stored token
+  // On mount: adopt an SSO token handed to us via ?ssoToken=... (the
+  // companion mHealth app opens us with this after its own device-login
+  // handshake), then validate whatever token we end up with in storage.
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ssoToken = params.get("ssoToken");
+    if (ssoToken) {
+      localStorage.setItem(TOKEN_KEY, ssoToken);
+      params.delete("ssoToken");
+      const rest = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+    }
+
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) { setLoading(false); return; }
     fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })

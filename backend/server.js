@@ -133,6 +133,48 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json({ user });
 });
 
+// Trusted-device login for the companion mHealth app: it already knows who
+// the user is (its own local account), so instead of showing our login
+// form again it calls this with a shared device secret to get a real JWT.
+// No password involved — the secret only proves the request came from our
+// own app, not from an arbitrary browser.
+app.post("/api/auth/device-login", (req, res) => {
+  if (!process.env.DEVICE_SSO_SECRET) {
+    return res.status(503).json({ error: "Device SSO not configured" });
+  }
+  const { deviceSecret, email, name } = req.body;
+  if (deviceSecret !== process.env.DEVICE_SSO_SECRET) {
+    return res.status(401).json({ error: "Invalid device credential" });
+  }
+  if (!email || !name) return res.status(400).json({ error: "email and name are required" });
+
+  let user = db.prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase());
+  if (!user) {
+    user = {
+      id: uid(),
+      email: email.toLowerCase(),
+      name: name.trim(),
+      role: "user",
+      // Random, never handed out — this account is only ever reached via
+      // the device-login handshake above, not the password login form.
+      password_hash: hashPassword(crypto.randomUUID()),
+      login_count: 0,
+      last_login: null,
+      note: "Provisioned via mHealth app device SSO",
+      created_at: Date.now(),
+    };
+    db.prepare(
+      "INSERT INTO users (id, email, name, role, password_hash, login_count, last_login, note, created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).run(user.id, user.email, user.name, user.role, user.password_hash, 0, null, user.note, user.created_at);
+  }
+
+  db.prepare("UPDATE users SET login_count = login_count + 1, last_login = ? WHERE id = ?")
+    .run(Date.now(), user.id);
+
+  const token = signToken(user);
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+});
+
 // ══════════════════════════════════════════════════════════════════════
 // CONVERSATIONS
 // ══════════════════════════════════════════════════════════════════════

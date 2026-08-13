@@ -8,6 +8,8 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
+      - key: DEVICE_SSO_SECRET
+        sync: false
       - key: NODE_ENV
         value: production
     disk:
