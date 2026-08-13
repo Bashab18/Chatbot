@@ -61,6 +61,7 @@ export default function ChatPage() {
   const [editTitle, setEditTitle]         = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [ttsSettings, setTtsSettings]    = useState(TTS_DEFAULTS);
+  const [userAiPrefs, setUserAiPrefs]    = useState(null); // {aiName, aiPersonality, aiVoiceId} set via the mHealth app
   const [instanceName, setInstanceName]  = useState("CIRA");
   const [botSettings, setBotSettings]    = useState({ model: null, style: null });
   const [showScrollBtn, setShowScrollBtn]= useState(false);
@@ -103,6 +104,15 @@ export default function ChatPage() {
       .catch(() => {});
     apiFetch("/api/instance")
       .then((d) => { if (d.name) setInstanceName(d.name); })
+      .catch(() => {});
+    // Per-user persona (name/personality/voice), pushed from the mHealth
+    // app's Settings > AI Agent screen -- overrides the instance defaults
+    // above when present.
+    apiFetch("/api/user/profile")
+      .then((d) => {
+        const { aiName, aiPersonality, aiVoiceId } = d.profile || {};
+        if (aiName || aiPersonality || aiVoiceId) setUserAiPrefs({ aiName, aiPersonality, aiVoiceId });
+      })
       .catch(() => {});
   }, [apiFetch]);
 
@@ -265,7 +275,7 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          voiceId:        ttsSettings.ttsVoiceId,
+          voiceId:        userAiPrefs?.aiVoiceId || ttsSettings.ttsVoiceId,
           modelId:        ttsSettings.ttsModelId,
           stability:      ttsSettings.ttsStability,
           similarityBoost:ttsSettings.ttsSimilarity,
@@ -281,7 +291,7 @@ export default function ChatPage() {
     } catch (err) {
       console.error("TTS:", err.message); setSpeakingId(null);
     }
-  }, [speakingId, ttsSettings]);
+  }, [speakingId, ttsSettings, userAiPrefs]);
 
   // ── Clear chat ────────────────────────────────────────────────────────
   async function clearChat() {
@@ -420,7 +430,7 @@ export default function ChatPage() {
           )}
 
           <span className="chat-title">
-            {activeTitle ?? (activeId ? "New Chat" : instanceName)}
+            {activeTitle ?? (activeId ? "New Chat" : (userAiPrefs?.aiName || instanceName))}
           </span>
 
           <div className="topbar-badges">
