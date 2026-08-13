@@ -12,7 +12,7 @@ const MODEL_GROUPS = [
     gen: "Gemini 3.5",
     models: [
       { id: "gemini-3.5-flash",      label: "3.5 Flash",      desc: "Fast and capable, best price-performance", tag: "Recommended" },
-      { id: "gemini-3.5-flash-lite", label: "3.5 Flash Lite", desc: "Lightweight and cost-efficient" },
+      { id: "gemini-3.5-flash-lite", label: "3.5 Flash Lite", desc: "Lightweight and cost-efficient", tag: "Lightest" },
     ],
   },
   {
@@ -31,9 +31,7 @@ const MODEL_GROUPS = [
   {
     gen: "Gemini 2.5",
     models: [
-      { id: "gemini-2.5-pro",        label: "2.5 Pro",        desc: "Deep reasoning & thinking" },
-      { id: "gemini-2.5-flash",      label: "2.5 Flash",      desc: "Adaptive thinking, balanced speed" },
-      { id: "gemini-2.5-flash-lite", label: "2.5 Flash Lite", desc: "Lightweight and cost-efficient", tag: "Lightest" },
+      { id: "gemini-2.5-pro", label: "2.5 Pro", desc: "Deep reasoning & thinking" },
     ],
   },
   {

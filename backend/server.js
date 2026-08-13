@@ -66,9 +66,14 @@ function getBotSettings() {
     const saved = JSON.parse(row.value);
     // Gemma 3 is not available on the standard API key; fall back to default
     if (saved.model && /^gemma-3/.test(saved.model)) saved.model = DEFAULT_BOT.model;
-    // Retired model IDs that no longer exist for this API key -- fall back
-    // rather than 404ing on every chat message until an admin notices.
-    if (saved.model && ["gemini-3-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro"].includes(saved.model)) {
+    // Model IDs not usable with this API key/account tier (verified against
+    // live generateContent calls, not just the ListModels catalog -- some
+    // listed models 404 with "no longer available to new users") -- fall
+    // back rather than breaking every chat message until an admin notices.
+    if (saved.model && [
+      "gemini-3-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite",
+      "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+    ].includes(saved.model)) {
       saved.model = DEFAULT_BOT.model;
     }
     // ElevenLabs retired these TTS models -- every synthesis call using them
@@ -374,8 +379,10 @@ Conversation:
 ${transcript}`;
 
     const { model: botModel } = getBotSettings();
-    // Gemma models don't support structured output — always use a Gemini model
-    const safeModel = botModel.startsWith("gemma-") ? "gemini-2.5-flash-lite" : botModel;
+    // Gemma models don't support structured output — always use a Gemini
+    // model. Uses Google's "-latest" alias (not a pinned version) so this
+    // internal fallback doesn't quietly rot the way a pinned ID did before.
+    const safeModel = botModel.startsWith("gemma-") ? "gemini-flash-lite-latest" : botModel;
 
     // Force valid JSON output so we never get markdown fences or prose
     const aiModel = genAI.getGenerativeModel({
@@ -809,7 +816,7 @@ app.post("/api/title", requireAuth, async (req, res) => {
   const { message, conversationId } = req.body;
   if (!message) return res.status(400).json({ error: "message is required" });
   try {
-    const m = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+    const m = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
     const chat = m.startChat({ history: [] });
     const result = await chat.sendMessage(
       `Generate a concise 4-6 word title for a conversation that starts with this message. ` +
