@@ -27,8 +27,7 @@ function requireAuth(req, res, next) {
   try {
     req.user = jwt.verify(token, SECRET);
     next();
-  } catch (e) {
-    console.log(`[auth] token rejected for ${req.method} ${req.path}: ${e.message}`);
+  } catch {
     res.status(401).json({ error: "Invalid or expired token" });
   }
 }

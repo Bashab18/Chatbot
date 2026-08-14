@@ -287,7 +287,6 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
 // actually reference it in conversation, not just display it in the admin
 // panel.
 app.put("/api/user/health-sync", requireAuth, (req, res) => {
-  console.log(`[health-sync] hit uid=${req.user.uid} keys=${Object.keys(req.body).join(",")}`);
   const {
     steps, activeCalories, latestHeartRate, restingHeartRate, peakHeartRate, hrvMs,
     sleepHoursLastNight, deepSleepHours, remSleepHours, lightSleepHours, heartZoneMinutes,
