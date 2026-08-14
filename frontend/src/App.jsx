@@ -35,11 +35,11 @@ function ProtectedRoute({ children, requireRole }) {
 
 function RootRedirect() {
   const { user, loading } = useAuth();
-  // Preserve the query string (nativeApp=1 in particular -- see ChatPage.jsx)
-  // across this redirect. <Navigate to="/chat" /> alone drops it, since it's
-  // a bare path with no search, so anything reading window.location.search
-  // after landing on /chat -- like ChatPage's native-app detection -- would
-  // otherwise silently see none of the params the caller passed in.
+  // Preserve the query string (ssoToken in particular) across this
+  // redirect. <Navigate to="/chat" /> alone drops it, since it's a bare
+  // path with no search, so anything reading window.location.search after
+  // landing on /chat would otherwise silently see none of the params the
+  // caller passed in.
   const { search } = useLocation();
   if (loading) return <div className="auth-loading"><div className="auth-spinner" /></div>;
   if (!user) return <Navigate to={`/login${search}`} replace />;

@@ -74,16 +74,12 @@ export default function ChatPage() {
   const textareaRef    = useRef(null);
   const recognitionRef = useRef(null);
 
-  // Speech-to-text availability (Web Speech API) -- unsupported in Android
-  // WebView (the mHealth app embeds CIRA that way), so this button would
-  // always fail there with a confusing "Microphone access denied" error
-  // sitting right next to the app's own (working) native mic FAB. The app
-  // marks that context with ?nativeApp=1 (see chat_screen.dart), so this
-  // button hides itself there instead of showing two mic affordances where
-  // one can never work; the native bridge posts transcripts in via
-  // CIRA_INSERT_TEXT (see the listener below) either way.
-  const isNativeApp = new URLSearchParams(window.location.search).get("nativeApp") === "1";
-  const [hasSpeech]    = useState(() => !isNativeApp && !!(window.SpeechRecognition || window.webkitSpeechRecognition));
+  // Speech-to-text availability (Web Speech API). The app grants microphone
+  // permission through to the WebView (see chat_screen.dart's
+  // onPermissionRequest), so this works there whenever the WebView itself
+  // exposes SpeechRecognition -- no need to hide it just because we're
+  // embedded; the native mic FAB is a separate, independent affordance.
+  const [hasSpeech]    = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError]       = useState(null);
 
