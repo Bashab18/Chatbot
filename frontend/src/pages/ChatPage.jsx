@@ -74,9 +74,13 @@ export default function ChatPage() {
   const textareaRef    = useRef(null);
   const recognitionRef = useRef(null);
 
-  // Speech-to-text availability (Web Speech API)
+  // Speech-to-text availability (Web Speech API) -- unsupported in Android
+  // WebView (the mHealth app embeds CIRA that way), so the mic button there
+  // comes from the app's native speech_to_text bridge instead; see
+  // App.jsx/chat_screen.dart's postMessage handler and CIRA_INSERT_TEXT.
   const [hasSpeech]    = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
   const [isRecording, setIsRecording] = useState(false);
+  const [micError, setMicError]       = useState(null);
 
   // ── API helper ────────────────────────────────────────────────────────
   const apiFetch = useCallback(async (url, opts = {}) => {
@@ -144,6 +148,13 @@ export default function ChatPage() {
     setSpeakingId(null);
   }, [activeId]);
 
+  // ── Mic error auto-dismiss ────────────────────────────────────────────
+  useEffect(() => {
+    if (!micError) return;
+    const t = setTimeout(() => setMicError(null), 4000);
+    return () => clearTimeout(t);
+  }, [micError]);
+
   // ── Scroll to bottom on new messages ─────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -157,6 +168,23 @@ export default function ChatPage() {
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 160) + "px";
   }, [input]);
+
+  // ── Native mic bridge ────────────────────────────────────────────────
+  // The mHealth app embeds this page in an Android WebView, where the
+  // Web Speech API below is unavailable (a Chromium/WebView limitation,
+  // not something CIRA can fix client-side) -- so the app's Chat tab has
+  // its own mic button that runs speech recognition natively and posts the
+  // transcript in here, instead of relying on window.SpeechRecognition.
+  useEffect(() => {
+    function onMessage(e) {
+      if (e.data?.type === "CIRA_INSERT_TEXT" && typeof e.data.text === "string") {
+        setInput((prev) => (prev ? `${prev} ${e.data.text}` : e.data.text));
+        textareaRef.current?.focus();
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   function handleScroll(e) {
     const el = e.currentTarget;
@@ -244,11 +272,20 @@ export default function ChatPage() {
   };
 
   // ── Voice input (Speech-to-text) ──────────────────────────────────────
+  const MIC_ERROR_MESSAGES = {
+    "not-allowed":     "Microphone access denied. Check your browser's site permissions.",
+    "service-not-allowed": "Microphone access denied. Check your browser's site permissions.",
+    "no-speech":       "Didn't catch that -- try again.",
+    "audio-capture":   "No microphone found.",
+    "network":         "Voice input needs an internet connection.",
+  };
+
   function toggleRecording() {
     if (isRecording) {
       recognitionRef.current?.stop();
       return;
     }
+    setMicError(null);
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = new SR();
     rec.continuous = false;
@@ -256,7 +293,10 @@ export default function ChatPage() {
     rec.lang = "en-US";
     rec.onstart  = () => setIsRecording(true);
     rec.onend    = () => { setIsRecording(false); recognitionRef.current = null; };
-    rec.onerror  = () => { setIsRecording(false); recognitionRef.current = null; };
+    rec.onerror  = (e) => {
+      setIsRecording(false); recognitionRef.current = null;
+      setMicError(MIC_ERROR_MESSAGES[e.error] || "Voice input isn't available right now.");
+    };
     rec.onresult = (e) => {
       const transcript = Array.from(e.results).map((r) => r[0].transcript).join("");
       setInput(transcript);
@@ -519,6 +559,7 @@ export default function ChatPage() {
 
         {/* Input */}
         <div className="chat-input-area">
+          {micError && <div className="mic-error">{micError}</div>}
           <div className="input-box">
             <textarea
               ref={textareaRef}
