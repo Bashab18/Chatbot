@@ -291,6 +291,7 @@ app.put("/api/user/health-sync", requireAuth, (req, res) => {
     steps, activeCalories, latestHeartRate, restingHeartRate, peakHeartRate, hrvMs,
     sleepHoursLastNight, deepSleepHours, remSleepHours, lightSleepHours, heartZoneMinutes,
     recentSessions, connectedDevices, workoutPlans, achievements, challenges, favoriteExercises,
+    exerciseLibrary,
   } = req.body;
   const profile = getUserProfile(req.user.uid);
 
@@ -383,6 +384,24 @@ app.put("/api/user/health-sync", requireAuth, (req, res) => {
       .filter((f) => typeof f === "string")
       .slice(0, 40)
       .map((f) => f.slice(0, 80));
+  }
+
+  // The app's full exercise library (name/category/muscles/equipment/
+  // difficulty) -- sent once per chat-open, not just favorites/recent, so
+  // CIRA can recommend or discuss any exercise the app actually has, not
+  // only ones the user already logged. Capped generously since this is a
+  // fixed catalog, not user-generated content.
+  if (Array.isArray(exerciseLibrary)) {
+    profile.exerciseLibrary = exerciseLibrary
+      .filter((e) => e && typeof e === "object")
+      .slice(0, 200)
+      .map((e) => ({
+        name: str(e.name, 80) || "Exercise",
+        category: str(e.category, 30),
+        muscles: Array.isArray(e.muscles) ? e.muscles.filter((m) => typeof m === "string").slice(0, 6).map((m) => m.slice(0, 40)) : [],
+        equipment: Array.isArray(e.equipment) ? e.equipment.filter((eq) => typeof eq === "string").slice(0, 6).map((eq) => eq.slice(0, 40)) : [],
+        difficulty: str(e.difficulty, 20),
+      }));
   }
 
   setUserProfile(req.user.uid, profile);
@@ -830,6 +849,19 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
   if (userProfile.favoriteExercises?.length > 0) {
     profileSection += `\n\nFavorited Exercises (from phone):\n${userProfile.favoriteExercises.map((f) => `- ${f}`).join("\n")}`;
+  }
+
+  // The app's exercise library -- lets CIRA recommend/discuss specific
+  // exercises by exact name instead of only generic advice. Kept compact
+  // (one line each) since this can run to 100+ entries.
+  if (userProfile.exerciseLibrary?.length > 0) {
+    const exLines = userProfile.exerciseLibrary.map((e) => {
+      const bits = [e.category, e.difficulty].filter(Boolean);
+      if (e.muscles?.length > 0) bits.push(e.muscles.join("/"));
+      if (e.equipment?.length > 0) bits.push(`equipment: ${e.equipment.join("/")}`);
+      return bits.length > 0 ? `${e.name} (${bits.join(", ")})` : e.name;
+    });
+    profileSection += `\n\nExercise Library (from phone -- ${exLines.length} exercises available in the app):\n${exLines.map((l) => `- ${l}`).join("\n")}`;
   }
 
   // ── KB retrieval ──────────────────────────────────────────────────
