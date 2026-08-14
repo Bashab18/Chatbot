@@ -16,3 +16,20 @@
   from   = "/*"
   to     = "/index.html"
   status = 200
+
+# index.html has no content hash in its filename, unlike the JS/CSS it
+# references (static/js/main.<hash>.js) -- without an explicit no-cache
+# here, browsers (and Android's WebView, which caches far more
+# aggressively/persistently than a real Chrome install) can keep serving a
+# stale index.html pointing at an old, already-deleted JS bundle
+# indefinitely, so a deploy silently never reaches an already-installed
+# client until its cache happens to expire or gets cleared by hand.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
