@@ -278,15 +278,19 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
 
 // Pushed from the mHealth mobile app -- its full on-device Health Connect /
 // HealthKit snapshot (steps, heart rate incl. resting/peak/HRV, sleep incl.
-// stage breakdown, heart-rate-zone minutes), recent workout log, and
-// connected devices, none of which (unlike Google Fit) this server can
-// reach on its own since it's local to the phone. Only sent when the user
-// has "Share with paired coaches" enabled in the app.
+// stage breakdown, heart-rate-zone minutes), recent workout log, connected
+// devices, workout plans (built-in + custom), earned achievements, active
+// challenges, and favorited exercises -- none of which this server can see
+// on its own since it's local to the phone/its SQLite db. Only sent when
+// the user has "Share with paired coaches" enabled in the app. Everything
+// here also feeds the /api/chat system-prompt context below, so CIRA can
+// actually reference it in conversation, not just display it in the admin
+// panel.
 app.put("/api/user/health-sync", requireAuth, (req, res) => {
   const {
     steps, activeCalories, latestHeartRate, restingHeartRate, peakHeartRate, hrvMs,
     sleepHoursLastNight, deepSleepHours, remSleepHours, lightSleepHours, heartZoneMinutes,
-    recentSessions, connectedDevices,
+    recentSessions, connectedDevices, workoutPlans, achievements, challenges, favoriteExercises,
   } = req.body;
   const profile = getUserProfile(req.user.uid);
 
@@ -338,6 +342,47 @@ app.put("/api/user/health-sync", requireAuth, (req, res) => {
       .filter((d) => d && typeof d === "object")
       .slice(0, 20)
       .map((d) => ({ name: str(d.name, 60) || "Device", kind: str(d.kind, 30) }));
+  }
+
+  if (Array.isArray(workoutPlans)) {
+    profile.workoutPlans = workoutPlans
+      .filter((p) => p && typeof p === "object")
+      .slice(0, 30)
+      .map((p) => ({
+        name: str(p.name, 80) || "Plan",
+        durationMin: num(p.durationMin),
+        exerciseCount: num(p.exerciseCount) ?? 0,
+        tags: Array.isArray(p.tags) ? p.tags.filter((t) => typeof t === "string").slice(0, 5).map((t) => t.slice(0, 30)) : [],
+        target: str(p.target, 30),
+        isCustom: !!p.isCustom,
+      }));
+  }
+
+  if (Array.isArray(achievements)) {
+    profile.achievements = achievements
+      .filter((a) => a && typeof a === "object")
+      .slice(0, 50)
+      .map((a) => ({ label: str(a.label, 60) || "Achievement", desc: str(a.desc, 200) }));
+  }
+
+  if (Array.isArray(challenges)) {
+    profile.challenges = challenges
+      .filter((c) => c && typeof c === "object")
+      .slice(0, 30)
+      .map((c) => ({
+        name: str(c.name, 80) || "Challenge",
+        current: num(c.current) ?? 0,
+        goal: num(c.goal) ?? 0,
+        unit: str(c.unit, 20),
+        state: str(c.state, 20),
+      }));
+  }
+
+  if (Array.isArray(favoriteExercises)) {
+    profile.favoriteExercises = favoriteExercises
+      .filter((f) => typeof f === "string")
+      .slice(0, 40)
+      .map((f) => f.slice(0, 80));
   }
 
   setUserProfile(req.user.uid, profile);
@@ -716,22 +761,75 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   // Synced from the mHealth app's on-device Health Connect / HealthKit data
   // (see PUT /api/user/health-sync) -- only present if the user opted in.
   if (userProfile.deviceHealth) {
-    const { steps, activeCalories, latestHeartRate, restingHeartRate, sleepHoursLastNight } = userProfile.deviceHealth;
+    const {
+      steps, activeCalories, latestHeartRate, restingHeartRate, peakHeartRate, hrvMs,
+      sleepHoursLastNight, deepSleepHours, remSleepHours, lightSleepHours, heartZoneMinutes,
+    } = userProfile.deviceHealth;
     const deviceLines = [
       steps && `Steps today: ${steps.toLocaleString()}`,
       activeCalories && `Active calories today: ${activeCalories}`,
       latestHeartRate && `Latest heart rate: ${latestHeartRate} bpm`,
       restingHeartRate && `Resting heart rate: ${restingHeartRate} bpm`,
+      peakHeartRate && `Peak heart rate: ${peakHeartRate} bpm`,
+      hrvMs && `Heart rate variability: ${hrvMs} ms`,
       sleepHoursLastNight && `Sleep last night: ${sleepHoursLastNight} h`,
+      (deepSleepHours || remSleepHours || lightSleepHours) &&
+        `Sleep stages: ${[deepSleepHours && `${deepSleepHours}h deep`, remSleepHours && `${remSleepHours}h REM`, lightSleepHours && `${lightSleepHours}h light`].filter(Boolean).join(", ")}`,
+      heartZoneMinutes && Object.keys(heartZoneMinutes).length > 0 &&
+        `Heart-rate zone minutes today: ${Object.entries(heartZoneMinutes).map(([zone, min]) => `${zone} ${min}m`).join(", ")}`,
     ].filter(Boolean);
     if (deviceLines.length > 0) profileSection += `\n\nRecent Health Data (from phone):\n${deviceLines.map((l) => `- ${l}`).join("\n")}`;
   }
 
   if (userProfile.recentSessions?.length > 0) {
-    const sessionLines = userProfile.recentSessions
-      .slice(0, 5)
-      .map((s) => `${s.name} — ${s.elapsedMin} min, ${s.kcal} kcal (${new Date(s.savedAt).toLocaleDateString()})`);
+    const sessionLines = userProfile.recentSessions.slice(0, 5).map((s) => {
+      const bits = [`${s.elapsedMin} min`, `${s.kcal} kcal`];
+      if (s.distanceKm) bits.push(`${s.distanceKm} km`);
+      if (s.steps) bits.push(`${s.steps} steps`);
+      if (s.pace) bits.push(s.pace);
+      if (s.sets) bits.push(`${s.sets} sets`);
+      if (s.hr) bits.push(`${s.hr} bpm`);
+      if (s.completed != null && s.total != null) bits.push(`${s.completed}/${s.total} completed`);
+      if (s.feel) bits.push(`felt ${s.feel}/5`);
+      const line = `${s.name} — ${bits.join(", ")} (${new Date(s.savedAt).toLocaleDateString()})`;
+      return s.notes ? `${line} — note: "${s.notes}"` : line;
+    });
     profileSection += `\n\nRecent Workouts (from phone):\n${sessionLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  if (userProfile.connectedDevices?.length > 0) {
+    const deviceNames = userProfile.connectedDevices.map((d) => d.kind ? `${d.name} (${d.kind})` : d.name);
+    profileSection += `\n\nConnected Devices:\n${deviceNames.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  if (userProfile.workoutPlans?.length > 0) {
+    const planLines = userProfile.workoutPlans.map((p) => {
+      const bits = [`${p.exerciseCount} exercises`];
+      if (p.durationMin) bits.push(`${p.durationMin} min`);
+      if (p.target) bits.push(p.target);
+      if (p.tags?.length > 0) bits.push(p.tags.join("/"));
+      if (p.isCustom) bits.push("custom");
+      return `${p.name} — ${bits.join(", ")}`;
+    });
+    profileSection += `\n\nWorkout Plans (from phone):\n${planLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  if (userProfile.achievements?.length > 0) {
+    const achLines = userProfile.achievements.map((a) => (a.desc ? `${a.label} — ${a.desc}` : a.label));
+    profileSection += `\n\nEarned Achievements (from phone):\n${achLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  if (userProfile.challenges?.length > 0) {
+    const chLines = userProfile.challenges.map((c) => {
+      const bits = [`${c.current}/${c.goal}${c.unit ? " " + c.unit : ""}`];
+      if (c.state && c.state !== "active") bits.push(c.state);
+      return `${c.name} — ${bits.join(", ")}`;
+    });
+    profileSection += `\n\nActive Challenges (from phone):\n${chLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  if (userProfile.favoriteExercises?.length > 0) {
+    profileSection += `\n\nFavorited Exercises (from phone):\n${userProfile.favoriteExercises.map((f) => `- ${f}`).join("\n")}`;
   }
 
   // ── KB retrieval ──────────────────────────────────────────────────
