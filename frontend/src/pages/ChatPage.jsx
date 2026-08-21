@@ -64,7 +64,7 @@ export default function ChatPage() {
   const [editTitle, setEditTitle]         = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [ttsSettings, setTtsSettings]    = useState(TTS_DEFAULTS);
-  const [userAiPrefs, setUserAiPrefs]    = useState(null); // {aiName, aiPersonality, aiVoiceId} set via the mHealth app
+  const [userAiPrefs, setUserAiPrefs]    = useState(null); // {aiName, aiPersonality, aiVoiceId, aiAvatar} set via the mHealth app
   const [instanceName, setInstanceName]  = useState("CIRA");
   const [botSettings, setBotSettings]    = useState({ model: null, style: null });
   const [showScrollBtn, setShowScrollBtn]= useState(false);
@@ -118,8 +118,8 @@ export default function ChatPage() {
     // above when present.
     apiFetch("/api/user/profile")
       .then((d) => {
-        const { aiName, aiPersonality, aiVoiceId } = d.profile || {};
-        if (aiName || aiPersonality || aiVoiceId) setUserAiPrefs({ aiName, aiPersonality, aiVoiceId });
+        const { aiName, aiPersonality, aiVoiceId, aiAvatar } = d.profile || {};
+        if (aiName || aiPersonality || aiVoiceId || aiAvatar) setUserAiPrefs({ aiName, aiPersonality, aiVoiceId, aiAvatar });
       })
       .catch(() => {});
   }, [apiFetch]);
@@ -474,7 +474,12 @@ export default function ChatPage() {
           )}
 
           <span className="chat-title">
-            {activeTitle ?? (activeId ? "New Chat" : (userAiPrefs?.aiName || instanceName))}
+            {activeTitle ?? (activeId ? "New Chat" : (
+              <>
+                {userAiPrefs?.aiAvatar && <span className="avatar-emoji">{userAiPrefs.aiAvatar}</span>}
+                {userAiPrefs?.aiName || instanceName}
+              </>
+            ))}
           </span>
 
           <div className="topbar-badges">
@@ -525,6 +530,7 @@ export default function ChatPage() {
                 msgId={msg.id}
                 timestamp={msg.timestamp}
                 userInitials={userInitials}
+                assistantAvatar={userAiPrefs?.aiAvatar}
                 onSpeak={ttsSettings.ttsEnabled ? handleSpeak : null}
                 isSpeaking={speakingId === msg.id}
                 refs={msg.refs || []}
@@ -535,9 +541,13 @@ export default function ChatPage() {
           {loading && (
             <div className="message-row assistant">
               <div className="avatar assistant-avatar">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09z"/>
-                </svg>
+                {userAiPrefs?.aiAvatar ? (
+                  <span className="avatar-emoji">{userAiPrefs.aiAvatar}</span>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09z"/>
+                  </svg>
+                )}
               </div>
               <div className="bubble typing"><span /><span /><span /></div>
             </div>

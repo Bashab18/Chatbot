@@ -261,8 +261,10 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
   const ALLOWED = [
     "age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies", "notes",
     // Per-user AI agent persona, set via the mHealth app's Settings > AI
-    // Agent screen -- aiVoiceId is an ElevenLabs voice_id, not a display name.
-    "aiName", "aiPersonality", "aiVoiceId",
+    // Agent screen -- aiVoiceId is an ElevenLabs voice_id, not a display
+    // name; aiAvatar is one of the app's emoji avatar options, rendered in
+    // place of the generic sparkle icon (see Message.jsx).
+    "aiName", "aiPersonality", "aiVoiceId", "aiAvatar",
   ];
   const profile = getUserProfile(req.user.uid);
   for (const k of ALLOWED) {
