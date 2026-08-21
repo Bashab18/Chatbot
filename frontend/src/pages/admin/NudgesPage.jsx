@@ -29,6 +29,7 @@ export default function NudgesPage() {
   const [body, setBody]           = useState("");
   const [sending, setSending]     = useState(false);
   const [message, setMessage]     = useState(null);
+  const [checking, setChecking]   = useState(false);
 
   async function apiFetch(url, opts = {}) {
     const res = await fetch(url, {
@@ -80,6 +81,26 @@ export default function NudgesPage() {
 
   const charsLeft = 500 - body.length;
 
+  async function handleRunAutoCheck() {
+    setChecking(true); setMessage(null);
+    try {
+      const data = await apiFetch("/api/admin/nudges/run-auto-check", { method: "POST" });
+      setMessage({
+        type: "success",
+        text: data.sent > 0
+          ? `CIRA sent ${data.sent} proactive nudge${data.sent === 1 ? "" : "s"} to inactive users.`
+          : "Checked — no one currently qualifies (either everyone's active, or already nudged within the last day).",
+      });
+      const n = await apiFetch("/api/admin/nudges");
+      setNudges(n.nudges ?? []);
+      setTimeout(() => setMessage((m) => (m?.type === "success" ? null : m)), 6000);
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <div className="admin-page">
       <div className="admin-page-header">
@@ -88,6 +109,20 @@ export default function NudgesPage() {
       </div>
 
       {message && <div className={`admin-alert admin-alert-${message.type}`}>{message.text}</div>}
+
+      <div className="settings-card">
+        <h2 className="settings-section-title">Proactive nudges</h2>
+        <p className="slider-hint">
+          CIRA checks every few hours for users with no logged workout in 2+ days and, if it hasn't already
+          nudged them in the last day, drafts and sends an encouraging reminder on its own — no admin needed.
+          Use this to trigger a check right now instead of waiting for the timer.
+        </p>
+        <div className="settings-actions">
+          <button className="btn-secondary" type="button" onClick={handleRunAutoCheck} disabled={checking}>
+            {checking ? "Checking…" : "Run check now"}
+          </button>
+        </div>
+      </div>
 
       <div className="settings-card">
         <h2 className="settings-section-title">Compose</h2>
@@ -148,6 +183,7 @@ export default function NudgesPage() {
                 <tr>
                   <th>To</th>
                   <th>Title</th>
+                  <th>Source</th>
                   <th>Sent</th>
                   <th>Status</th>
                 </tr>
@@ -165,6 +201,7 @@ export default function NudgesPage() {
                       </div>
                     </td>
                     <td>{n.title}</td>
+                    <td>{n.created_by === "cira-auto" ? "🤖 CIRA (auto)" : "Admin"}</td>
                     <td><span className="table-date">{timeAgo(n.created_at)}</span></td>
                     <td>
                       {n.delivered_at ? (

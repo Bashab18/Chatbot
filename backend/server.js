@@ -1180,7 +1180,7 @@ app.post("/api/admin/nudges", requireAdmin, (req, res) => {
 
 app.get("/api/admin/nudges", requireAdmin, (req, res) => {
   const rows = db.prepare(`
-    SELECT n.id, n.title, n.body, n.created_at, n.delivered_at, u.name AS user_name, u.email AS user_email
+    SELECT n.id, n.title, n.body, n.created_at, n.delivered_at, n.created_by, u.name AS user_name, u.email AS user_email
     FROM nudges n JOIN users u ON u.id = n.user_id
     ORDER BY n.created_at DESC
     LIMIT 200
@@ -1207,6 +1207,103 @@ app.get("/api/user/nudges/pending", requireAuth, (req, res) => {
   }
   res.json({ nudges: rows });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// PROACTIVE NUDGES -- CIRA decides on its own, no admin/chat prompt
+// needed. Runs on a timer inside this same long-running process (see
+// setInterval below) rather than a separate Render cron job, since the
+// nudges/users tables live in this service's own SQLite file on its
+// attached disk that a separate scheduled service wouldn't have access
+// to. Currently flags one thing: no workout session logged in
+// INACTIVITY_THRESHOLD_MS, computed from the session timestamps already
+// pushed via health-sync -- the only activity signal reliably available
+// with a real timestamp. Skips users who've never synced session data
+// (health-sync is opt-in via the app's "Share with paired coaches"
+// toggle, so an empty list means either they're opted out or genuinely
+// have no history to reason about either way), and enforces a per-user
+// cooldown so the same gap doesn't re-nudge every time the timer fires.
+// ══════════════════════════════════════════════════════════════════════
+
+const INACTIVITY_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 2 days since last logged session
+const NUDGE_COOLDOWN_MS = 20 * 60 * 60 * 1000; // ~once/day, with slack for check cadence
+const NUDGE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // re-scan 4x/day
+
+async function draftInactivityNudge(user, daysSince) {
+  const firstName = (user.name || "there").split(" ")[0];
+  const profile = getUserProfile(user.id);
+  let persona = "";
+  if (profile.aiName) persona += `You are named "${profile.aiName}". `;
+  if (profile.aiPersonality) persona += `Adopt a ${profile.aiPersonality.toLowerCase()} personality. `;
+
+  const prompt =
+    `${persona}You are a fitness companion app writing a short push notification to gently nudge ` +
+    `${firstName} back to activity -- it has been ${daysSince} day${daysSince === 1 ? "" : "s"} since ` +
+    `their last logged workout. Write ONE encouraging, non-guilt-tripping notification. ` +
+    `Reply as exactly two lines with no other text:\n` +
+    `Line 1: a short title (max 8 words, no quotes, no emoji)\n` +
+    `Line 2: a short body (max 20 words, no quotes)`;
+
+  const m = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
+  const result = await m.generateContent(prompt);
+  const lines = result.response.text().trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  const title = (lines[0] || `Missing you, ${firstName}!`).slice(0, 100);
+  const body = (lines[1] || "It's been a couple of days -- ready for a quick session today?").slice(0, 500);
+  return { title, body };
+}
+
+async function checkAndSendProactiveNudges() {
+  const users = db.prepare("SELECT id, name, email, profile FROM users WHERE role != 'admin'").all();
+  const now = Date.now();
+  let sent = 0;
+
+  for (const row of users) {
+    let profile;
+    try { profile = JSON.parse(row.profile || "{}"); } catch { profile = {}; }
+
+    const sessions = Array.isArray(profile.recentSessions) ? profile.recentSessions : [];
+    if (sessions.length === 0) continue; // opted out, or nothing synced to reason about yet
+
+    const lastSessionAt = Math.max(...sessions.map((s) => s.savedAt || 0));
+    if (now - lastSessionAt < INACTIVITY_THRESHOLD_MS) continue; // still active, nothing to flag
+
+    const recentAutoNudge = db.prepare(
+      "SELECT created_at FROM nudges WHERE user_id = ? AND created_by = 'cira-auto' ORDER BY created_at DESC LIMIT 1"
+    ).get(row.id);
+    if (recentAutoNudge && now - recentAutoNudge.created_at < NUDGE_COOLDOWN_MS) continue; // already nudged recently
+
+    const daysSince = Math.floor((now - lastSessionAt) / (24 * 60 * 60 * 1000));
+    try {
+      const { title, body } = await draftInactivityNudge(row, daysSince);
+      db.prepare(
+        "INSERT INTO nudges (id, user_id, title, body, created_at, created_by) VALUES (?,?,?,?,?,?)"
+      ).run(uid(), row.id, title, body, now, "cira-auto");
+      sent++;
+      console.log(`[proactive-nudge] sent to ${row.email}: "${title}"`);
+    } catch (err) {
+      console.error(`[proactive-nudge] failed for ${row.email}:`, err.message);
+    }
+  }
+  return sent;
+}
+
+// Manual trigger so an admin (or this file's own author, while testing)
+// can run the check immediately instead of waiting for the timer.
+app.post("/api/admin/nudges/run-auto-check", requireAdmin, async (req, res) => {
+  try {
+    const sent = await checkAndSendProactiveNudges();
+    res.json({ message: "Checked", sent });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Give the server a moment to finish starting up, then check periodically.
+setTimeout(() => {
+  checkAndSendProactiveNudges().catch((err) => console.error("[proactive-nudge] check failed:", err.message));
+  setInterval(() => {
+    checkAndSendProactiveNudges().catch((err) => console.error("[proactive-nudge] check failed:", err.message));
+  }, NUDGE_CHECK_INTERVAL_MS);
+}, 2 * 60 * 1000);
 
 // ══════════════════════════════════════════════════════════════════════
 // KNOWLEDGE BASE (admin only)
