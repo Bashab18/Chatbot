@@ -1283,6 +1283,7 @@ async function checkAndSendProactiveNudges() {
       console.error(`[proactive-nudge] failed for ${row.email}:`, err.message);
     }
   }
+  console.log(`[proactive-nudge] check complete: ${sent} sent, ${users.length} users scanned`);
   return sent;
 }
 
