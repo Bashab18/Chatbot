@@ -1217,16 +1217,19 @@ app.get("/api/user/nudges/pending", requireAuth, (req, res) => {
 // to. Currently flags one thing: no workout session logged in
 // INACTIVITY_THRESHOLD_MS, computed from the session timestamps already
 // pushed via health-sync -- the only activity signal reliably available
-// with a real timestamp. Skips users who've never synced session data
-// (health-sync is opt-in via the app's "Share with paired coaches"
-// toggle, so an empty list means either they're opted out or genuinely
-// have no history to reason about either way), and enforces a per-user
-// cooldown so the same gap doesn't re-nudge every time the timer fires.
+// with a real timestamp. Skips users who've never synced session data,
+// and -- since the app has no "sharing turned off" signal, it just stops
+// calling health-sync -- also skips anyone whose last sync is older than
+// RECENT_SYNC_WINDOW_MS, so a user who disabled "Share with paired
+// coaches" after previously sharing doesn't get nudged forever off a
+// frozen snapshot. Enforces a per-user cooldown so the same gap doesn't
+// re-nudge every time the timer fires.
 // ══════════════════════════════════════════════════════════════════════
 
 const INACTIVITY_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 2 days since last logged session
 const NUDGE_COOLDOWN_MS = 20 * 60 * 60 * 1000; // ~once/day, with slack for check cadence
 const NUDGE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // re-scan 4x/day
+const RECENT_SYNC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // must still be actively sharing, not just once
 
 async function draftInactivityNudge(user, daysSince) {
   const firstName = (user.name || "there").split(" ")[0];
@@ -1262,6 +1265,17 @@ async function checkAndSendProactiveNudges() {
 
     const sessions = Array.isArray(profile.recentSessions) ? profile.recentSessions : [];
     if (sessions.length === 0) continue; // opted out, or nothing synced to reason about yet
+
+    // The app has no "sharing turned off" signal -- it just stops calling
+    // health-sync, so a user who shared once and later disabled "Share
+    // with paired coaches" would otherwise look permanently inactive
+    // forever off a frozen recentSessions snapshot. deviceHealth.fetchedAt
+    // is refreshed on every chat open while sharing stays on (independent
+    // of whether they've actually worked out), so a stale fetchedAt is a
+    // reliable signal they're no longer sharing -- skip them rather than
+    // nudge off data they may no longer be sending.
+    const fetchedAt = profile.deviceHealth?.fetchedAt;
+    if (!fetchedAt || now - fetchedAt > RECENT_SYNC_WINDOW_MS) continue;
 
     const lastSessionAt = Math.max(...sessions.map((s) => s.savedAt || 0));
     if (now - lastSessionAt < INACTIVITY_THRESHOLD_MS) continue; // still active, nothing to flag
