@@ -264,7 +264,10 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
     // Agent screen -- aiVoiceId is an ElevenLabs voice_id, not a display
     // name; aiAvatar is one of the app's emoji avatar options, rendered in
     // place of the generic sparkle icon (see Message.jsx).
-    "aiName", "aiPersonality", "aiVoiceId", "aiAvatar",
+    // aiNotify is the app's "AI nudges & reminders" switch -- stored as
+    // the string "true"/"false" like every other value here, and honoured
+    // by checkAndSendProactiveNudges below.
+    "aiName", "aiPersonality", "aiVoiceId", "aiAvatar", "aiNotify",
   ];
   const profile = getUserProfile(req.user.uid);
   for (const k of ALLOWED) {
@@ -1193,19 +1196,42 @@ app.delete("/api/admin/nudges/:id", requireAdmin, (req, res) => {
   res.json({ message: "Deleted" });
 });
 
-// Called by the mHealth app -- returns this user's undelivered nudges and
-// marks them delivered in the same request (fetch = acknowledge).
+// Called by the mHealth app -- returns this user's undelivered nudges.
+//
+// Clients that pass ?ack=explicit are NOT auto-acknowledged here: they
+// call POST /api/user/nudges/ack once the notification has actually been
+// shown. Acknowledging on fetch loses the nudge for good whenever the
+// display step doesn't happen (notification permission denied, app killed
+// mid-loop, crash) -- it's marked delivered, and the pending query filters
+// delivered rows out forever. Older app builds don't know about the ack
+// call, so for them the original fetch-is-acknowledge behaviour stays;
+// otherwise they'd re-show the same nudge on every poll.
 app.get("/api/user/nudges/pending", requireAuth, (req, res) => {
   const rows = db.prepare(
     "SELECT id, title, body, created_at FROM nudges WHERE user_id = ? AND delivered_at IS NULL ORDER BY created_at ASC"
   ).all(req.user.uid);
-  if (rows.length > 0) {
+  const explicitAck = req.query.ack === "explicit";
+  if (rows.length > 0 && !explicitAck) {
     const now = Date.now();
     const markDelivered = db.prepare("UPDATE nudges SET delivered_at = ? WHERE id = ?");
     const markMany = db.transaction((ns) => { for (const n of ns) markDelivered.run(now, n.id); });
     markMany(rows);
   }
   res.json({ nudges: rows });
+});
+
+// Acknowledge nudges the app has actually displayed. Scoped to the calling
+// user so one account can't mark another's nudges delivered.
+app.post("/api/user/nudges/ack", requireAuth, (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((i) => typeof i === "string") : [];
+  if (ids.length === 0) return res.json({ acknowledged: 0 });
+  const now = Date.now();
+  const mark = db.prepare("UPDATE nudges SET delivered_at = ? WHERE id = ? AND user_id = ? AND delivered_at IS NULL");
+  let acknowledged = 0;
+  db.transaction((list) => {
+    for (const id of list) acknowledged += mark.run(now, id, req.user.uid).changes;
+  })(ids);
+  res.json({ acknowledged });
 });
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1222,8 +1248,9 @@ app.get("/api/user/nudges/pending", requireAuth, (req, res) => {
 // calling health-sync -- also skips anyone whose last sync is older than
 // RECENT_SYNC_WINDOW_MS, so a user who disabled "Share with paired
 // coaches" after previously sharing doesn't get nudged forever off a
-// frozen snapshot. Enforces a per-user cooldown so the same gap doesn't
-// re-nudge every time the timer fires.
+// frozen snapshot, and anyone who switched off "AI nudges & reminders".
+// Enforces a per-user cooldown so the same gap doesn't re-nudge every
+// time the timer fires.
 // ══════════════════════════════════════════════════════════════════════
 
 const INACTIVITY_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 2 days since last logged session
@@ -1262,6 +1289,10 @@ async function checkAndSendProactiveNudges() {
   for (const row of users) {
     let profile;
     try { profile = JSON.parse(row.profile || "{}"); } catch { profile = {}; }
+
+    // Settings > AI Agent > "AI nudges & reminders". Stored as a string by
+    // PUT /api/user/profile like every other value there, so compare as one.
+    if (String(profile.aiNotify) === "false") continue; // user switched these off
 
     const sessions = Array.isArray(profile.recentSessions) ? profile.recentSessions : [];
     if (sessions.length === 0) continue; // opted out, or nothing synced to reason about yet
