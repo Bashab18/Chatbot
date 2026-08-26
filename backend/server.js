@@ -295,8 +295,8 @@ app.put("/api/user/health-sync", requireAuth, (req, res) => {
   const {
     steps, activeCalories, latestHeartRate, restingHeartRate, peakHeartRate, hrvMs,
     sleepHoursLastNight, deepSleepHours, remSleepHours, lightSleepHours, heartZoneMinutes,
-    recentSessions, connectedDevices, workoutPlans, achievements, challenges, favoriteExercises,
-    exerciseLibrary,
+    healthHistory, recentSessions, connectedDevices, workoutPlans, achievements, challenges,
+    favoriteExercises, exerciseLibrary,
   } = req.body;
   const profile = getUserProfile(req.user.uid);
 
@@ -319,6 +319,25 @@ app.put("/api/user/health-sync", requireAuth, (req, res) => {
       : undefined,
     fetchedAt: Date.now(),
   };
+
+  // Daily Health Connect/HealthKit history -- backs the app's own Stats
+  // screen trend charts (steps/calories over a week, sleep over a month,
+  // heart rate over a week). Previously health-sync only ever carried
+  // "today", so CIRA could state today's steps but had no way to say
+  // whether that was typical or discuss a trend at all.
+  if (Array.isArray(healthHistory)) {
+    profile.healthHistory = healthHistory
+      .filter((d) => d && typeof d === "object" && typeof d.day === "string")
+      .slice(0, 30)
+      .map((d) => ({
+        day: str(d.day, 10),
+        steps: num(d.steps),
+        activeCalories: num(d.activeCalories),
+        sleepHours: num(d.sleepHours),
+        restingHr: num(d.restingHr),
+        hrvMs: num(d.hrvMs),
+      }));
+  }
 
   if (Array.isArray(recentSessions)) {
     profile.recentSessions = recentSessions
@@ -803,6 +822,38 @@ app.post("/api/chat", requireAuth, async (req, res) => {
         `Heart-rate zone minutes today: ${Object.entries(heartZoneMinutes).map(([zone, min]) => `${zone} ${min}m`).join(", ")}`,
     ].filter(Boolean);
     if (deviceLines.length > 0) profileSection += `\n\nRecent Health Data (from phone):\n${deviceLines.map((l) => `- ${l}`).join("\n")}`;
+  }
+
+  // Same daily rows the app's own Statistics screen charts (steps/calories,
+  // sleep, heart rate trend lines) -- lets CIRA discuss a trend ("busier
+  // than last week", "sleep's been shorter") instead of only ever knowing
+  // today's numbers.
+  if (userProfile.healthHistory?.length > 0) {
+    const days = [...userProfile.healthHistory].sort((a, b) => (a.day < b.day ? -1 : 1));
+    const avg = (key) => {
+      const vals = days.map((d) => d[key]).filter((v) => typeof v === "number");
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+    const avgSteps = avg("steps"), avgCal = avg("activeCalories"), avgSleep = avg("sleepHours"), avgHr = avg("restingHr");
+    const summaryBits = [
+      avgSteps && `avg ${Math.round(avgSteps).toLocaleString()} steps/day`,
+      avgCal && `avg ${Math.round(avgCal)} active kcal/day`,
+      avgSleep && `avg ${avgSleep.toFixed(1)}h sleep`,
+      avgHr && `avg ${Math.round(avgHr)} bpm resting`,
+    ].filter(Boolean);
+    const dayLines = days.map((d) => {
+      const bits = [
+        d.steps && `${d.steps.toLocaleString()} steps`,
+        d.activeCalories && `${d.activeCalories} kcal`,
+        d.sleepHours && `${d.sleepHours.toFixed(1)}h sleep`,
+        d.restingHr && `${d.restingHr} bpm resting`,
+        d.hrvMs && `${d.hrvMs} ms HRV`,
+      ].filter(Boolean);
+      return bits.length > 0 ? `${d.day}: ${bits.join(", ")}` : null;
+    }).filter(Boolean);
+    if (dayLines.length > 0) {
+      profileSection += `\n\nHealth Trend, last ${dayLines.length} days (from phone)${summaryBits.length > 0 ? ` -- ${summaryBits.join(", ")}` : ""}:\n${dayLines.map((l) => `- ${l}`).join("\n")}`;
+    }
   }
 
   if (userProfile.recentSessions?.length > 0) {
