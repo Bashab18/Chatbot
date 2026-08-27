@@ -44,11 +44,21 @@ const MODEL_GROUPS = [
   {
     gen: "NVIDIA",
     models: [
-      { id: "nvidia/nemotron-3-nano-30b-a3b",   label: "Nemotron 3 Nano",  desc: "Fast, efficient reasoning model — good all-rounder", tag: "Recommended" },
+      { id: "nvidia/nemotron-3-nano-30b-a3b",    label: "Nemotron 3 Nano",  desc: "Fast, efficient reasoning model — good all-rounder", tag: "Recommended" },
       { id: "nvidia/nemotron-3-super-120b-a12b", label: "Nemotron 3 Super", desc: "Larger — stronger reasoning, slower/costlier per reply" },
+      { id: "minimaxai/minimax-m3",              label: "MiniMax M3",      desc: "Fast general-purpose model, no reasoning-trace overhead" },
+      { id: "deepseek-ai/deepseek-v4-pro-0813",  label: "DeepSeek V4 Pro", desc: "Strong reasoning and long-form quality — latency varies noticeably, sometimes 30s+" },
     ],
   },
 ];
+
+// Derived rather than hand-maintained a second time -- membership here (not
+// an id-prefix guess) is what the backend also uses to decide whether a
+// model is routed to NVIDIA NIM instead of Gemini, since NVIDIA hosts other
+// vendors' models under their own prefix too (e.g. "minimaxai/minimax-m3").
+const NVIDIA_MODEL_IDS = new Set(
+  MODEL_GROUPS.find((g) => g.gen === "NVIDIA")?.models.map((m) => m.id) ?? []
+);
 
 const STYLES = [
   { value: "precise",  label: "Precise",  desc: "Factual, direct",        temp: "0.2" },
@@ -152,7 +162,7 @@ function ToggleSliderRow({ label, hint, value, onChange, warning, error }) {
 // Derive warnings/errors for a given model + web search state
 function useSourceValidation(model, webSearchWeight) {
   const isGemma     = model.startsWith("gemma-");
-  const isNvidia    = model.startsWith("nvidia/");
+  const isNvidia    = NVIDIA_MODEL_IDS.has(model);
   const isGemini15  = model.startsWith("gemini-1.5");
   const webOn       = webSearchWeight > 0;
 

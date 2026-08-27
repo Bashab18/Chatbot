@@ -23,9 +23,24 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ── NVIDIA NIM (OpenAI-compatible) ──────────────────────────────────────
 // A second provider selectable in Admin → Bot Settings alongside
-// Gemini/Gemma, identified by a "nvidia/" model id prefix. NVIDIA's hosted
-// models speak the OpenAI chat-completions wire format, not Gemini's SDK
-// shape, so this is a plain REST call rather than routed through `genAI`.
+// Gemini/Gemma. NVIDIA's hosted models speak the OpenAI chat-completions
+// wire format, not Gemini's SDK shape, so this is a plain REST call rather
+// than routed through `genAI`.
+//
+// Membership in this set (not a "nvidia/" id prefix -- NVIDIA NIM also
+// hosts other vendors' models under their own prefix, e.g.
+// "minimaxai/minimax-m3") is what decides whether a chat request is routed
+// here instead of to Gemini. Keep in sync with the NVIDIA group in
+// frontend/src/pages/admin/SettingsPage.jsx's MODEL_GROUPS -- every id
+// here was individually verified against a real chat-completions call
+// against this account's key (NVIDIA's /v1/models catalog lists plenty of
+// ids that 404 or hang indefinitely when actually called).
+const NVIDIA_MODELS = new Set([
+  "nvidia/nemotron-3-nano-30b-a3b",
+  "nvidia/nemotron-3-super-120b-a12b",
+  "minimaxai/minimax-m3",
+  "deepseek-ai/deepseek-v4-pro-0813",
+]);
 const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 async function callNvidiaChat({ model, systemPrompt, history, message, temperature }) {
@@ -541,7 +556,7 @@ ${transcript}`;
     // regardless of what the admin picked for user-facing chat. Uses
     // Google's "-latest" alias (not a pinned version) so this internal
     // fallback doesn't quietly rot the way a pinned ID did before.
-    const safeModel = (botModel.startsWith("gemma-") || botModel.startsWith("nvidia/")) ? "gemini-flash-lite-latest" : botModel;
+    const safeModel = (botModel.startsWith("gemma-") || NVIDIA_MODELS.has(botModel)) ? "gemini-flash-lite-latest" : botModel;
 
     // Force valid JSON output so we never get markdown fences or prose
     const aiModel = genAI.getGenerativeModel({
@@ -1006,7 +1021,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
   // ── Call model ────────────────────────────────────────────────────
   try {
-    const isNvidia = model.startsWith("nvidia/");
+    const isNvidia = NVIDIA_MODELS.has(model);
     let reply;
 
     if (isNvidia) {
