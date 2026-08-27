@@ -41,6 +41,13 @@ const MODEL_GROUPS = [
       { id: "gemma-4-26b-a4b-it", label: "4 — 26B MoE", desc: "26B MoE — efficient high-throughput" },
     ],
   },
+  {
+    gen: "NVIDIA",
+    models: [
+      { id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Llama 3.1 Nemotron 70B", desc: "NVIDIA's helpfulness-tuned fine-tune — fast, good all-rounder", tag: "Recommended" },
+      { id: "nvidia/nemotron-4-340b-instruct",        label: "Nemotron 4 340B",        desc: "Much larger — strongest reasoning, slower/costlier per reply" },
+    ],
+  },
 ];
 
 const STYLES = [
@@ -145,11 +152,14 @@ function ToggleSliderRow({ label, hint, value, onChange, warning, error }) {
 // Derive warnings/errors for a given model + web search state
 function useSourceValidation(model, webSearchWeight) {
   const isGemma     = model.startsWith("gemma-");
+  const isNvidia    = model.startsWith("nvidia/");
   const isGemini15  = model.startsWith("gemini-1.5");
   const webOn       = webSearchWeight > 0;
 
   const webError   = webOn && isGemma
     ? "Gemma models don't support Live Web Search. Disable web search or switch to a Gemini model."
+    : webOn && isNvidia
+    ? "NVIDIA models don't support Live Web Search. Disable web search or switch to a Gemini model."
     : null;
   const webWarning = webOn && isGemini15 && !isGemma
     ? "Live Web Search works best with Gemini 2.0+ models. Results may be less reliable on Gemini 1.5."
@@ -157,6 +167,8 @@ function useSourceValidation(model, webSearchWeight) {
 
   const modelNote = isGemma && webOn
     ? "⚠ Live Web Search is enabled but not supported by Gemma models."
+    : isNvidia && webOn
+    ? "⚠ Live Web Search is enabled but not supported by NVIDIA models."
     : null;
 
   return { webError, webWarning, modelNote };

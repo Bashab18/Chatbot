@@ -21,6 +21,37 @@ fs.mkdirSync("uploads", { recursive: true });
 const upload = multer({ dest: "uploads/", limits: { fileSize: 20 * 1024 * 1024 } });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// ── NVIDIA NIM (OpenAI-compatible) ──────────────────────────────────────
+// A second provider selectable in Admin → Bot Settings alongside
+// Gemini/Gemma, identified by a "nvidia/" model id prefix. NVIDIA's hosted
+// models speak the OpenAI chat-completions wire format, not Gemini's SDK
+// shape, so this is a plain REST call rather than routed through `genAI`.
+const NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
+
+async function callNvidiaChat({ model, systemPrompt, history, message, temperature }) {
+  if (!process.env.NVIDIA_API_KEY) {
+    throw new Error("NVIDIA_API_KEY is not configured on the server.");
+  }
+  const messages = [
+    ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+    ...history.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.text })),
+    { role: "user", content: message },
+  ];
+  const res = await fetch(NVIDIA_API_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, temperature }),
+  });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`NVIDIA API ${res.status}: ${errBody.slice(0, 300) || res.statusText}`);
+  }
+  const data = await res.json();
+  const reply = data.choices?.[0]?.message?.content;
+  if (typeof reply !== "string") throw new Error("NVIDIA API returned no reply content.");
+  return reply;
+}
+
 
 let store = load();
 // Drop documents whose chunks were discarded (old float-array embeddings from before BM25 migration)
@@ -505,10 +536,12 @@ Conversation:
 ${transcript}`;
 
     const { model: botModel } = getBotSettings();
-    // Gemma models don't support structured output — always use a Gemini
-    // model. Uses Google's "-latest" alias (not a pinned version) so this
-    // internal fallback doesn't quietly rot the way a pinned ID did before.
-    const safeModel = botModel.startsWith("gemma-") ? "gemini-flash-lite-latest" : botModel;
+    // Gemma and NVIDIA models aren't driven through genAI's structured-output
+    // config below — always use a Gemini model for this internal task
+    // regardless of what the admin picked for user-facing chat. Uses
+    // Google's "-latest" alias (not a pinned version) so this internal
+    // fallback doesn't quietly rot the way a pinned ID did before.
+    const safeModel = (botModel.startsWith("gemma-") || botModel.startsWith("nvidia/")) ? "gemini-flash-lite-latest" : botModel;
 
     // Force valid JSON output so we never get markdown fences or prose
     const aiModel = genAI.getGenerativeModel({
@@ -971,44 +1004,55 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     }
   }
 
-  // ── Call Gemini ───────────────────────────────────────────────────
+  // ── Call model ────────────────────────────────────────────────────
   try {
-    const isGemma = model.startsWith("gemma-");
+    const isNvidia = model.startsWith("nvidia/");
+    let reply;
 
-    const geminiHistory = history.slice(-10).map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.text }],
-    }));
+    if (isNvidia) {
+      // NVIDIA's hosted models have no equivalent to Gemini's Google Search
+      // grounding tool -- Live Web Search is silently a no-op here rather
+      // than erroring, matching the admin UI's own warning for this model
+      // family (see useSourceValidation in SettingsPage.jsx).
+      reply = await callNvidiaChat({ model, systemPrompt: fullSystem, history: history.slice(-10), message, temperature });
+    } else {
+      const isGemma = model.startsWith("gemma-");
 
-    // Gemma models don't support systemInstruction — prepend as a
-    // user/model exchange at the start of the history instead
-    const historyWithSystem = isGemma && fullSystem
-      ? [
-        { role: "user",  parts: [{ text: fullSystem }] },
-        { role: "model", parts: [{ text: "Understood. I will follow those instructions." }] },
-        ...geminiHistory,
-      ]
-      : geminiHistory;
+      const geminiHistory = history.slice(-10).map((m) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.text }],
+      }));
 
-    const modelConfig = {
-      model,
-      generationConfig: { temperature },
-    };
-    if (!isGemma) modelConfig.systemInstruction = fullSystem;
-    if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
+      // Gemma models don't support systemInstruction — prepend as a
+      // user/model exchange at the start of the history instead
+      const historyWithSystem = isGemma && fullSystem
+        ? [
+          { role: "user",  parts: [{ text: fullSystem }] },
+          { role: "model", parts: [{ text: "Understood. I will follow those instructions." }] },
+          ...geminiHistory,
+        ]
+        : geminiHistory;
 
-    const geminiModel = genAI.getGenerativeModel(modelConfig);
-    const chat   = geminiModel.startChat({ history: historyWithSystem });
-    const result = await chat.sendMessage(message);
-    const reply  = result.response.text();
+      const modelConfig = {
+        model,
+        generationConfig: { temperature },
+      };
+      if (!isGemma) modelConfig.systemInstruction = fullSystem;
+      if (useWebSearch) modelConfig.tools = [{ googleSearch: {} }];
 
-    // Extract web grounding sources
-    if (useWebSearch) {
-      const candidates = result.response.candidates || [];
-      const gm = candidates[0]?.groundingMetadata;
-      if (gm?.groundingChunks) {
-        for (const chunk of gm.groundingChunks) {
-          if (chunk.web?.uri) refs.push({ name: chunk.web.title || chunk.web.uri, text: chunk.web.uri, type: "web" });
+      const geminiModel = genAI.getGenerativeModel(modelConfig);
+      const chat   = geminiModel.startChat({ history: historyWithSystem });
+      const result = await chat.sendMessage(message);
+      reply = result.response.text();
+
+      // Extract web grounding sources
+      if (useWebSearch) {
+        const candidates = result.response.candidates || [];
+        const gm = candidates[0]?.groundingMetadata;
+        if (gm?.groundingChunks) {
+          for (const chunk of gm.groundingChunks) {
+            if (chunk.web?.uri) refs.push({ name: chunk.web.title || chunk.web.uri, text: chunk.web.uri, type: "web" });
+          }
         }
       }
     }
@@ -1021,7 +1065,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
     res.json({ userMsgId, botMsgId, reply, refs });
   } catch (err) {
-    console.error("Gemini error:", err.message);
+    console.error("Chat model error:", err.message);
     let errMsg;
     if (err.message.includes("404") || err.message.toLowerCase().includes("not found")) {
       errMsg = `⚠️ Model "${model}" is not available with your API key. Please choose a different model in Admin → Bot Settings.`;
