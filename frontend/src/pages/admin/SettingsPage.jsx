@@ -44,8 +44,8 @@ const MODEL_GROUPS = [
   {
     gen: "NVIDIA",
     models: [
-      { id: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Llama 3.1 Nemotron 70B", desc: "NVIDIA's helpfulness-tuned fine-tune — fast, good all-rounder", tag: "Recommended" },
-      { id: "nvidia/nemotron-4-340b-instruct",        label: "Nemotron 4 340B",        desc: "Much larger — strongest reasoning, slower/costlier per reply" },
+      { id: "nvidia/nemotron-3-nano-30b-a3b",   label: "Nemotron 3 Nano",  desc: "Fast, efficient reasoning model — good all-rounder", tag: "Recommended" },
+      { id: "nvidia/nemotron-3-super-120b-a12b", label: "Nemotron 3 Super", desc: "Larger — stronger reasoning, slower/costlier per reply" },
     ],
   },
 ];
