@@ -335,6 +335,20 @@ body {
 .avatar-emoji {
   font-size: 1.15rem;
   line-height: 1;
+  display: inline-block;
+}
+/* Web has no equivalent to the app's animated vector character icons, so
+   "Animated" here is just a gentle bob applied to the same emoji glyph --
+   matches the app's CharacterAvatar bob+breathe motion in spirit, not
+   pixel-for-pixel. */
+@media (prefers-reduced-motion: no-preference) {
+  .avatar-emoji.animated {
+    animation: avatar-bob 2.6s ease-in-out infinite;
+  }
+}
+@keyframes avatar-bob {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.04); }
 }
 .assistant-avatar {
   background: linear-gradient(135deg, #0a1a12, #162a1e);

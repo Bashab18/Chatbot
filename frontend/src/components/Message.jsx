@@ -36,7 +36,7 @@ function CopyCodeBtn({ code }) {
   );
 }
 
-export default function Message({ role, text, msgId, timestamp, userInitials, assistantAvatar, onSpeak, isSpeaking, refs }) {
+export default function Message({ role, text, msgId, timestamp, userInitials, assistantAvatar, assistantAvatarAnimated, onSpeak, isSpeaking, refs }) {
   const [copied, setCopied] = useState(false);
 
   function copyText() {
@@ -55,7 +55,7 @@ export default function Message({ role, text, msgId, timestamp, userInitials, as
           userInitials ?? "U"
         ) : assistantAvatar ? (
           /* User's chosen avatar, set via the mHealth app's Settings > AI Agent */
-          <span className="avatar-emoji">{assistantAvatar}</span>
+          <span className={`avatar-emoji${assistantAvatarAnimated ? " animated" : ""}`}>{assistantAvatar}</span>
         ) : (
           /* Sparkle icon fallback for assistant */
           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">

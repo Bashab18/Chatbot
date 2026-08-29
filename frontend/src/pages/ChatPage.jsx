@@ -8,6 +8,17 @@ const TTS_DEFAULTS = {
   ttsModelId: "eleven_turbo_v2_5", ttsStability: 0.5, ttsSimilarity: 0.75,
 };
 
+// Mirrors the mHealth app's kAvatarOptions (lib/data/ai_agent_options.dart)
+// -- the app sends the character key, not an emoji, so this is the only
+// place on the web side that knows how to render one. There's no web
+// equivalent to the app's own animated vector character icons, so
+// "Animated" here just means a CSS animation applied to the same emoji
+// (see .avatar-emoji.animated in App.css).
+const AVATAR_EMOJI = {
+  femaleOlder: "👵", femaleYoung: "👩", maleOlder: "👴", maleYoung: "👨",
+  cat: "🐱", dog: "🐶", tiger: "🐯", lion: "🦁", none: null,
+};
+
 const DAY = 86_400_000;
 
 function groupConvs(convs) {
@@ -118,8 +129,10 @@ export default function ChatPage() {
     // above when present.
     apiFetch("/api/user/profile")
       .then((d) => {
-        const { aiName, aiPersonality, aiVoiceId, aiAvatar } = d.profile || {};
-        if (aiName || aiPersonality || aiVoiceId || aiAvatar) setUserAiPrefs({ aiName, aiPersonality, aiVoiceId, aiAvatar });
+        const { aiName, aiPersonality, aiVoiceId, aiAvatar, aiAvatarAnimated } = d.profile || {};
+        if (aiName || aiPersonality || aiVoiceId || aiAvatar) {
+          setUserAiPrefs({ aiName, aiPersonality, aiVoiceId, aiAvatar, aiAvatarAnimated: aiAvatarAnimated === "true" });
+        }
       })
       .catch(() => {});
   }, [apiFetch]);
@@ -476,7 +489,9 @@ export default function ChatPage() {
           <span className="chat-title">
             {activeTitle ?? (activeId ? "New Chat" : (
               <>
-                {userAiPrefs?.aiAvatar && <span className="avatar-emoji">{userAiPrefs.aiAvatar}</span>}
+                {AVATAR_EMOJI[userAiPrefs?.aiAvatar] && (
+                  <span className={`avatar-emoji${userAiPrefs.aiAvatarAnimated ? " animated" : ""}`}>{AVATAR_EMOJI[userAiPrefs.aiAvatar]}</span>
+                )}
                 {userAiPrefs?.aiName || instanceName}
               </>
             ))}
@@ -530,7 +545,8 @@ export default function ChatPage() {
                 msgId={msg.id}
                 timestamp={msg.timestamp}
                 userInitials={userInitials}
-                assistantAvatar={userAiPrefs?.aiAvatar}
+                assistantAvatar={AVATAR_EMOJI[userAiPrefs?.aiAvatar]}
+                assistantAvatarAnimated={!!userAiPrefs?.aiAvatarAnimated}
                 onSpeak={ttsSettings.ttsEnabled ? handleSpeak : null}
                 isSpeaking={speakingId === msg.id}
                 refs={msg.refs || []}
@@ -541,8 +557,8 @@ export default function ChatPage() {
           {loading && (
             <div className="message-row assistant">
               <div className="avatar assistant-avatar">
-                {userAiPrefs?.aiAvatar ? (
-                  <span className="avatar-emoji">{userAiPrefs.aiAvatar}</span>
+                {AVATAR_EMOJI[userAiPrefs?.aiAvatar] ? (
+                  <span className={`avatar-emoji${userAiPrefs.aiAvatarAnimated ? " animated" : ""}`}>{AVATAR_EMOJI[userAiPrefs.aiAvatar]}</span>
                 ) : (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09z"/>

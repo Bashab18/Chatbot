@@ -308,12 +308,16 @@ app.put("/api/user/profile", requireAuth, (req, res) => {
     "age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies", "notes",
     // Per-user AI agent persona, set via the mHealth app's Settings > AI
     // Agent screen -- aiVoiceId is an ElevenLabs voice_id, not a display
-    // name; aiAvatar is one of the app's emoji avatar options, rendered in
-    // place of the generic sparkle icon (see Message.jsx).
+    // name; aiAvatar is one of the app's avatar character keys (kept
+    // opaque here -- only the frontend's AVATAR_EMOJI map in ChatPage.jsx
+    // knows how to render a key), shown in place of the generic sparkle
+    // icon (see Message.jsx). aiAvatarAnimated toggles a CSS animation on
+    // that same emoji rather than swapping in different art -- there's no
+    // web equivalent to the app's own animated vector character icons.
     // aiNotify is the app's "AI nudges & reminders" switch -- stored as
     // the string "true"/"false" like every other value here, and honoured
     // by checkAndSendProactiveNudges below.
-    "aiName", "aiPersonality", "aiVoiceId", "aiAvatar", "aiNotify",
+    "aiName", "aiPersonality", "aiVoiceId", "aiAvatar", "aiAvatarAnimated", "aiNotify",
   ];
   const profile = getUserProfile(req.user.uid);
   for (const k of ALLOWED) {
