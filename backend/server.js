@@ -1376,9 +1376,12 @@ const NUDGE_COOLDOWN_MS = 20 * 60 * 60 * 1000; // ~once/day, with slack for chec
 const NUDGE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // re-scan 4x/day
 const RECENT_SYNC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // must still be actively sharing, not just once
 
-async function draftInactivityNudge(user, daysSince) {
+// profile is passed in already-parsed rather than refetched via
+// getUserProfile(user.id) -- the caller (checkAndSendProactiveNudges) has
+// already done that SELECT + JSON.parse for its own eligibility checks, so
+// re-fetching here would just be the same row/parse done twice.
+async function draftInactivityNudge(user, profile, daysSince) {
   const firstName = (user.name || "there").split(" ")[0];
-  const profile = getUserProfile(user.id);
   let persona = "";
   if (profile.aiName) persona += `You are named "${profile.aiName}". `;
   if (profile.aiPersonality) persona += `Adopt a ${profile.aiPersonality.toLowerCase()} personality. `;
@@ -1436,7 +1439,7 @@ async function checkAndSendProactiveNudges() {
 
     const daysSince = Math.floor((now - lastSessionAt) / (24 * 60 * 60 * 1000));
     try {
-      const { title, body } = await draftInactivityNudge(row, daysSince);
+      const { title, body } = await draftInactivityNudge(row, profile, daysSince);
       db.prepare(
         "INSERT INTO nudges (id, user_id, title, body, created_at, created_by) VALUES (?,?,?,?,?,?)"
       ).run(uid(), row.id, title, body, now, "cira-auto");

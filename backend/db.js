@@ -40,6 +40,16 @@ db.exec(`
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  -- Every conversation-open (GET /api/conversations/:id/messages) filters by
+  -- conversation_id and sorts by timestamp -- without this, that's a full
+  -- table scan + filesort over every message ever sent by any user, and it
+  -- only gets worse as chat history grows.
+  CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id, timestamp);
+  -- GET /api/conversations filters by user_id and sorts by updated_at on
+  -- every sidebar load -- composite so SQLite can satisfy both the filter
+  -- and the sort from the index directly, without a separate sort pass.
+  CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id, updated_at DESC);
+
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

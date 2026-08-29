@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Message from "../components/Message";
@@ -21,6 +21,12 @@ const AVATAR_EMOJI = {
 };
 
 const DAY = 86_400_000;
+
+// A stable shared reference instead of a fresh `[]` literal per render --
+// Message is now memo()'d (see Message.jsx), and `refs={msg.refs || []}`
+// would silently defeat that for every message with no refs (the common
+// case), since `[] !== []` by reference on every single re-render.
+const EMPTY_REFS = [];
 
 function groupConvs(convs) {
   const t = new Date(); t.setHours(0, 0, 0, 0);
@@ -372,7 +378,10 @@ export default function ChatPage() {
   }
 
   const isEmpty       = messages.length === 0;
-  const grouped       = groupConvs(conversations);
+  // groupConvs does a Date.now()-relative bucketing pass over the full
+  // conversation list -- only needs to re-run when that list actually
+  // changes, not on every render (e.g. every keystroke in the input box).
+  const grouped       = useMemo(() => groupConvs(conversations), [conversations]);
   const userInitials  = getInitials(user?.name);
   const activeTitle   = conversations.find((c) => c.id === activeId)?.title;
 
@@ -556,7 +565,7 @@ export default function ChatPage() {
                 assistantAvatarAnimated={!!userAiPrefs?.aiAvatarAnimated}
                 onSpeak={ttsSettings.ttsEnabled ? handleSpeak : null}
                 isSpeaking={speakingId === msg.id}
-                refs={msg.refs || []}
+                refs={msg.refs || EMPTY_REFS}
               />
             ))
           )}

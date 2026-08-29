@@ -1,5 +1,28 @@
 const db = require("../db");
 
+// Precomputes what search() used to rebuild from scratch on every single
+// chat message: each chunk's own term-frequency map (never changes once a
+// chunk is stored) and the corpus-wide document-frequency map + average
+// chunk length (only change when a document is added/removed). Call this
+// once whenever store.chunks changes -- never from inside search() itself.
+function _buildTf(tokens) {
+  const tf = new Map();
+  for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+  return tf;
+}
+
+function _recomputeCorpusStats(store) {
+  const N = store.chunks.length;
+  store.avgLen = N === 0 ? 0 : store.chunks.reduce((s, c) => s + (c.tokens.length || 1), 0) / N;
+  const df = new Map();
+  for (const chunk of store.chunks) {
+    for (const term of new Set(chunk.tokens)) {
+      df.set(term, (df.get(term) || 0) + 1);
+    }
+  }
+  store.df = df;
+}
+
 // ── Load in-memory store from SQLite on startup ───────────────────────────
 function load() {
   try {
@@ -15,13 +38,15 @@ function load() {
       if (!Array.isArray(parsed) || (parsed.length > 0 && typeof parsed[0] !== "string")) {
         return null;
       }
-      return { docId: c.docId, docName: c.docName, text: c.text, tokens: parsed };
+      return { docId: c.docId, docName: c.docName, text: c.text, tokens: parsed, tf: _buildTf(parsed) };
     }).filter(Boolean);
 
-    return { documents, chunks };
+    const store = { documents, chunks };
+    _recomputeCorpusStats(store);
+    return store;
   } catch (e) {
     console.error("Store load error:", e.message);
-    return { documents: [], chunks: [] };
+    return { documents: [], chunks: [], avgLen: 0, df: new Map() };
   }
 }
 
@@ -46,8 +71,9 @@ function addDocument(store, { id, name, chunks }) {
 
   store.documents.push({ id, name, chunkCount: chunks.length, addedAt: Date.now() });
   for (const c of chunks) {
-    store.chunks.push({ docId: id, docName: name, text: c.text, tokens: c.tokens });
+    store.chunks.push({ docId: id, docName: name, text: c.text, tokens: c.tokens, tf: _buildTf(c.tokens) });
   }
+  _recomputeCorpusStats(store);
 }
 
 // ── Remove a document ─────────────────────────────────────────────────────
@@ -55,6 +81,7 @@ function removeDocument(store, id) {
   db.prepare("DELETE FROM kb_documents WHERE id = ?").run(id);
   store.documents = store.documents.filter((d) => d.id !== id);
   store.chunks    = store.chunks.filter((c) => c.docId !== id);
+  _recomputeCorpusStats(store);
 }
 
 // ── BM25 keyword search ───────────────────────────────────────────────────
@@ -64,23 +91,21 @@ const B  = 0.75;
 function search(store, queryTokens, topK = 4, minScore = 0) {
   if (!store.chunks.length || !queryTokens.length) return [];
 
+  // avgLen/df are corpus-wide stats and each chunk's own tf map is fixed
+  // once stored -- all precomputed by _recomputeCorpusStats/_buildTf in
+  // load()/addDocument()/removeDocument() rather than rebuilt here, since
+  // this function runs once per chat message while those only run on a KB
+  // write. Previously this rebuilt all of that (an O(total corpus tokens)
+  // scan) on every single message regardless of query.
   const N      = store.chunks.length;
-  const avgLen = store.chunks.reduce((s, c) => s + (c.tokens.length || 1), 0) / N;
-
-  // Document frequency: how many chunks contain each term
-  const df = new Map();
-  for (const chunk of store.chunks) {
-    for (const term of new Set(chunk.tokens)) {
-      df.set(term, (df.get(term) || 0) + 1);
-    }
-  }
+  const avgLen = store.avgLen || 1;
+  const df     = store.df;
 
   const uniqueQuery = [...new Set(queryTokens)];
 
   return store.chunks
     .map((chunk) => {
-      const tf  = new Map();
-      for (const t of chunk.tokens) tf.set(t, (tf.get(t) || 0) + 1);
+      const tf  = chunk.tf;
       const len = chunk.tokens.length || 1;
 
       let score = 0;

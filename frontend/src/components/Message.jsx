@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 
 function formatTime(ts) {
@@ -36,7 +36,11 @@ function CopyCodeBtn({ code }) {
   );
 }
 
-export default function Message({ role, text, msgId, timestamp, userInitials, userAvatar, userAvatarAnimated, assistantAvatar, assistantAvatarAnimated, onSpeak, isSpeaking, refs }) {
+// Memoized: without this, every keystroke in ChatPage's input box re-renders
+// every Message in the list (including a full ReactMarkdown re-parse of
+// each assistant reply), since the messages array itself doesn't change but
+// nothing stopped React from re-invoking these children anyway.
+const Message = memo(function Message({ role, text, msgId, timestamp, userInitials, userAvatar, userAvatarAnimated, assistantAvatar, assistantAvatarAnimated, onSpeak, isSpeaking, refs }) {
   const [copied, setCopied] = useState(false);
 
   function copyText() {
@@ -170,4 +174,6 @@ export default function Message({ role, text, msgId, timestamp, userInitials, us
       </div>
     </div>
   );
-}
+});
+
+export default Message;
