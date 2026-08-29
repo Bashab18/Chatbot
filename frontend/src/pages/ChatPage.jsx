@@ -9,9 +9,10 @@ const TTS_DEFAULTS = {
 };
 
 // Mirrors the mHealth app's kAvatarOptions (lib/data/ai_agent_options.dart)
-// -- the app sends the character key, not an emoji, so this is the only
-// place on the web side that knows how to render one. There's no web
-// equivalent to the app's own animated vector character icons, so
+// -- the app sends the character key, not an emoji, for BOTH the user's own
+// avatar (Settings > Personal Details) and the AI Agent's, so this is the
+// only place on the web side that knows how to render either one. There's
+// no web equivalent to the app's own animated vector character icons, so
 // "Animated" here just means a CSS animation applied to the same emoji
 // (see .avatar-emoji.animated in App.css).
 const AVATAR_EMOJI = {
@@ -76,6 +77,7 @@ export default function ChatPage() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [ttsSettings, setTtsSettings]    = useState(TTS_DEFAULTS);
   const [userAiPrefs, setUserAiPrefs]    = useState(null); // {aiName, aiPersonality, aiVoiceId, aiAvatar} set via the mHealth app
+  const [selfAvatar, setSelfAvatar]      = useState(null); // {userAvatar, userAvatarAnimated} -- the user's OWN avatar, distinct from the AI's
   const [instanceName, setInstanceName]  = useState("CIRA");
   const [botSettings, setBotSettings]    = useState({ model: null, style: null });
   const [showScrollBtn, setShowScrollBtn]= useState(false);
@@ -129,10 +131,11 @@ export default function ChatPage() {
     // above when present.
     apiFetch("/api/user/profile")
       .then((d) => {
-        const { aiName, aiPersonality, aiVoiceId, aiAvatar, aiAvatarAnimated } = d.profile || {};
+        const { aiName, aiPersonality, aiVoiceId, aiAvatar, aiAvatarAnimated, userAvatar, userAvatarAnimated } = d.profile || {};
         if (aiName || aiPersonality || aiVoiceId || aiAvatar) {
           setUserAiPrefs({ aiName, aiPersonality, aiVoiceId, aiAvatar, aiAvatarAnimated: aiAvatarAnimated === "true" });
         }
+        if (userAvatar) setSelfAvatar({ userAvatar, userAvatarAnimated: userAvatarAnimated === "true" });
       })
       .catch(() => {});
   }, [apiFetch]);
@@ -455,7 +458,9 @@ export default function ChatPage() {
         <div className="sidebar-bottom">
           <div className="sidebar-user-row">
             <button className="user-avatar sidebar-avatar-btn" onClick={() => navigate("/profile")} title="My Profile">
-              {userInitials}
+              {AVATAR_EMOJI[selfAvatar?.userAvatar] ? (
+                <span className={`avatar-emoji${selfAvatar.userAvatarAnimated ? " animated" : ""}`}>{AVATAR_EMOJI[selfAvatar.userAvatar]}</span>
+              ) : userInitials}
             </button>
             <div className="user-info">
               <button className="user-name-link" onClick={() => navigate("/profile")} title="My Profile">
@@ -545,6 +550,8 @@ export default function ChatPage() {
                 msgId={msg.id}
                 timestamp={msg.timestamp}
                 userInitials={userInitials}
+                userAvatar={AVATAR_EMOJI[selfAvatar?.userAvatar]}
+                userAvatarAnimated={!!selfAvatar?.userAvatarAnimated}
                 assistantAvatar={AVATAR_EMOJI[userAiPrefs?.aiAvatar]}
                 assistantAvatarAnimated={!!userAiPrefs?.aiAvatarAnimated}
                 onSpeak={ttsSettings.ttsEnabled ? handleSpeak : null}

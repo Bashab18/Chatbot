@@ -36,7 +36,7 @@ function CopyCodeBtn({ code }) {
   );
 }
 
-export default function Message({ role, text, msgId, timestamp, userInitials, assistantAvatar, assistantAvatarAnimated, onSpeak, isSpeaking, refs }) {
+export default function Message({ role, text, msgId, timestamp, userInitials, userAvatar, userAvatarAnimated, assistantAvatar, assistantAvatarAnimated, onSpeak, isSpeaking, refs }) {
   const [copied, setCopied] = useState(false);
 
   function copyText() {
@@ -52,7 +52,10 @@ export default function Message({ role, text, msgId, timestamp, userInitials, as
       {/* Avatar */}
       <div className={`avatar ${role}-avatar`}>
         {role === "user" ? (
-          userInitials ?? "U"
+          userAvatar ? (
+            /* User's own chosen avatar, set via the mHealth app's Settings > Personal Details */
+            <span className={`avatar-emoji${userAvatarAnimated ? " animated" : ""}`}>{userAvatar}</span>
+          ) : (userInitials ?? "U")
         ) : assistantAvatar ? (
           /* User's chosen avatar, set via the mHealth app's Settings > AI Agent */
           <span className={`avatar-emoji${assistantAvatarAnimated ? " animated" : ""}`}>{assistantAvatar}</span>

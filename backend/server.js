@@ -306,6 +306,10 @@ app.get("/api/user/profile", requireAuth, (req, res) => {
 app.put("/api/user/profile", requireAuth, (req, res) => {
   const ALLOWED = [
     "age", "gender", "height", "weight", "conditions", "medications", "goals", "allergies", "notes",
+    // The user's own avatar (mHealth app's Settings > Personal Details),
+    // shown next to their own chat messages -- same character-key +
+    // opaque-to-the-backend scheme as aiAvatar below.
+    "userAvatar", "userAvatarAnimated",
     // Per-user AI agent persona, set via the mHealth app's Settings > AI
     // Agent screen -- aiVoiceId is an ElevenLabs voice_id, not a display
     // name; aiAvatar is one of the app's avatar character keys (kept
