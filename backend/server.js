@@ -99,7 +99,7 @@ const DEFAULT_BOT = {
   theme: "dark",
   // TTS (ElevenLabs)
   ttsEnabled: true,
-  ttsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+  ttsVoiceId: "EXAVITQu4vr4xnSDxMaL", // Sarah -- Mature, Reassuring, Confident
   ttsModelId: "eleven_turbo_v2_5",
   ttsStability: 0.5,
   ttsSimilarity: 0.75,
@@ -1589,7 +1589,7 @@ function stripMarkdownForSpeech(text) {
 
 app.post("/api/tts", async (req, res) => {
   if (!process.env.ELEVENLABS_API_KEY) return res.status(400).json({ error: "ELEVENLABS_API_KEY not set" });
-  const { text, voiceId = "21m00Tcm4TlvDq8ikWAM", modelId = "eleven_turbo_v2_5", stability = 0.5, similarityBoost = 0.75 } = req.body;
+  const { text, voiceId = "EXAVITQu4vr4xnSDxMaL", modelId = "eleven_turbo_v2_5", stability = 0.5, similarityBoost = 0.75 } = req.body;
   if (!text) return res.status(400).json({ error: "text is required" });
   const cleanText = stripMarkdownForSpeech(text); try {
     const r = await fetch(`${XI_BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {

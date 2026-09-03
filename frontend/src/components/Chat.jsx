@@ -30,7 +30,7 @@ export default function Chat({ conversation, onUpdate, onToggleSidebar, sidebarO
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          voiceId:        settings?.ttsVoiceId      ?? "21m00Tcm4TlvDq8ikWAM",
+          voiceId:        settings?.ttsVoiceId      ?? "EXAVITQu4vr4xnSDxMaL",
           modelId:        settings?.ttsModelId      ?? "eleven_turbo_v2_5",
           stability:      settings?.ttsStability    ?? 0.5,
           similarityBoost: settings?.ttsSimilarity  ?? 0.75,

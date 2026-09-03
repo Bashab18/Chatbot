@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import Message from "../components/Message";
 
 const TTS_DEFAULTS = {
-  ttsEnabled: true, ttsVoiceId: "21m00Tcm4TlvDq8ikWAM",
+  ttsEnabled: true, ttsVoiceId: "EXAVITQu4vr4xnSDxMaL",
   ttsModelId: "eleven_turbo_v2_5", ttsStability: 0.5, ttsSimilarity: 0.75,
 };
 

@@ -85,7 +85,7 @@ const DEFAULTS = {
   webSearchWeight:    0,
   theme:              "dark",
   ttsEnabled:         true,
-  ttsVoiceId:         "21m00Tcm4TlvDq8ikWAM",
+  ttsVoiceId:         "EXAVITQu4vr4xnSDxMaL",
   ttsModelId:         "eleven_turbo_v2_5",
   ttsStability:       0.5,
   ttsSimilarity:      0.75,
