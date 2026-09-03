@@ -87,6 +87,11 @@ export default function ChatPage() {
   const [instanceName, setInstanceName]  = useState("CIRA");
   const [botSettings, setBotSettings]    = useState({ model: null, style: null });
   const [showScrollBtn, setShowScrollBtn]= useState(false);
+  // Set by the mHealth app (chat_screen.dart) so this page knows it's
+  // embedded in the app's own WebView, which already has its own "CIRA"
+  // title bar above this page -- the sidebar brand below would just repeat
+  // it right underneath, so it's skipped there (see .sidebar-brand below).
+  const [isNativeApp]                    = useState(() => new URLSearchParams(window.location.search).get("nativeApp") === "1");
 
   const audioRef       = useRef(null);
   const bottomRef      = useRef(null);
@@ -393,10 +398,12 @@ export default function ChatPage() {
 
         {/* Header */}
         <div className="sidebar-top">
-          <div className="sidebar-brand">
-            <span className="brand-symbol">✦</span>
-            <span className="brand-name">{instanceName}</span>
-          </div>
+          {!isNativeApp && (
+            <div className="sidebar-brand">
+              <span className="brand-symbol">✦</span>
+              <span className="brand-name">{instanceName}</span>
+            </div>
+          )}
           <button className="icon-btn sidebar-toggle" onClick={() => setSidebarOpen(false)} title="Collapse">
             <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
               <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
